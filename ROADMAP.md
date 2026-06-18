@@ -14,9 +14,8 @@
 ## v0.2
 
 - Undo and redo for gesture operations.
-- Stronger `postMessage` payload validation.
-- Post-compile validator that flags leftover temporary transforms, inline sizing, and `data-frame-id` attributes.
-- Export operation ledger as JSON.
+- Stronger schema coverage for every `postMessage` payload.
+- Auto-repair prompt when compile checks detect leftover temporary layout code.
 - Better streaming DOM morphing instead of iframe reloads.
 
 ## v0.3

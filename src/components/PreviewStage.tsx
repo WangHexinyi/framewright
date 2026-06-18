@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GestureOperation, SelectedElement } from '../types';
+import { isGestureOperation, isSelectedElement } from '../services/validation';
 
 interface PreviewStageProps {
   code: string;
@@ -378,11 +379,16 @@ export function PreviewStage({
       }
 
       if (event.data.type === 'operation' && event.data.operation) {
-        onOperation(event.data.operation);
+        if (isGestureOperation(event.data.operation)) {
+          onOperation(event.data.operation);
+        }
       }
 
       if (event.data.type === 'selected') {
-        onSelectElement(event.data.element ?? null);
+        const element = event.data.element ?? null;
+        if (isSelectedElement(element)) {
+          onSelectElement(element);
+        }
       }
     };
 

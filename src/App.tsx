@@ -5,6 +5,7 @@ import {
   extractHtmlBlock,
   streamChatCompletion,
 } from './services/llm';
+import { validateCompiledHtml, type CompileIssue } from './services/validation';
 import type { ApiConfig, GestureOperation, Message, SelectedElement } from './types';
 
 const STORAGE_KEY = 'framewright.apiConfig';
@@ -127,6 +128,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [streamText, setStreamText] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [compileIssues, setCompileIssues] = useState<CompileIssue[]>([]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
@@ -142,6 +144,7 @@ function App() {
 
   const handleCodeChange = useCallback((nextCode: string) => {
     setCode(nextCode);
+    setCompileIssues([]);
   }, []);
 
   const handleOperation = useCallback((operation: GestureOperation) => {
@@ -193,6 +196,7 @@ Return a complete responsive single-file HTML prototype.`,
     if (response) {
       setMessages((prev) => [...prev, { role: 'assistant', content: response }]);
       setOperations([]);
+      setCompileIssues([]);
     }
   }
 
@@ -209,6 +213,10 @@ Return a complete responsive single-file HTML prototype.`,
     const response = await runAi([...messages.slice(-4), userMessage]);
 
     if (response) {
+      const html = extractHtmlBlock(response);
+      if (html) {
+        setCompileIssues(validateCompiledHtml(html));
+      }
       setMessages((prev) => [
         ...prev,
         { role: 'user', content: 'Compile my visual edits into clean responsive layout code.' },
@@ -218,6 +226,19 @@ Return a complete responsive single-file HTML prototype.`,
       setInspectMode(false);
       setSelectedElement(null);
     }
+  }
+
+  function handleExportLedger() {
+    const payload = JSON.stringify(operations.slice().reverse(), null, 2);
+    const blob = new Blob([payload], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `framewright-gesture-ledger-${Date.now()}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -286,6 +307,24 @@ Return a complete responsive single-file HTML prototype.`,
               <span>text {operationCountByType.editText ?? 0}</span>
             </div>
           </div>
+          <div className="ledger-actions">
+            <button type="button" onClick={handleExportLedger} disabled={operations.length === 0}>
+              Export ledger
+            </button>
+            <button type="button" onClick={() => setOperations([])} disabled={operations.length === 0}>
+              Clear
+            </button>
+          </div>
+          {operations.length > 0 && (
+            <ol className="ledger-list" aria-label="Recent gesture operations">
+              {operations.slice(0, 5).map((operation) => (
+                <li key={operation.id}>
+                  <strong>{operation.type}</strong>
+                  <span>{`<${operation.tagName}>`}</span>
+                </li>
+              ))}
+            </ol>
+          )}
           <button
             className="compile-button"
             type="button"
@@ -327,6 +366,18 @@ Return a complete responsive single-file HTML prototype.`,
         </section>
 
         {error && <div className="error-box">{error}</div>}
+        {compileIssues.length > 0 && (
+          <div className="issues-box">
+            <strong>Compile checks</strong>
+            <ul>
+              {compileIssues.map((issue) => (
+                <li key={issue.message} className={issue.severity}>
+                  {issue.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </aside>
 
       <PreviewStage

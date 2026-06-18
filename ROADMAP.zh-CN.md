@@ -14,9 +14,8 @@
 ## v0.2
 
 - 手势操作的撤销和重做。
-- 更严格的 `postMessage` payload 校验。
-- AI 编译后的本地校验：检查残留的临时 transform、inline sizing 和 `data-frame-id`。
-- 导出 gesture ledger JSON。
+- 覆盖所有 `postMessage` payload 的更完整 schema 校验。
+- 当编译检查发现临时布局代码残留时，自动触发修复提示词。
 - 用 DOM morphing 改善流式预览，减少 iframe 重载。
 
 ## v0.3
