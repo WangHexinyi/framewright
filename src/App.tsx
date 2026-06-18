@@ -488,6 +488,7 @@ Return a complete responsive single-file HTML prototype.`,
       <PreviewStage
         code={code}
         inspectMode={inspectMode}
+        deferPreviewSync={autoCompileEnabled && !isLoading}
         onCodeChange={handleCodeChange}
         onOperation={handleOperation}
         onSelectElement={setSelectedElement}

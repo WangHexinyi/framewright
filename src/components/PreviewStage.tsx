@@ -5,6 +5,7 @@ import { isGestureOperation, isSelectedElement } from '../services/validation';
 interface PreviewStageProps {
   code: string;
   inspectMode: boolean;
+  deferPreviewSync?: boolean;
   onCodeChange: (code: string) => void;
   onOperation: (operation: GestureOperation) => void;
   onSelectElement: (element: SelectedElement | null) => void;
@@ -398,13 +399,26 @@ function injectInspector(html: string): string {
 export function PreviewStage({
   code,
   inspectMode,
+  deferPreviewSync = false,
   onCodeChange,
   onOperation,
   onSelectElement,
 }: PreviewStageProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [device, setDevice] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
-  const enhancedCode = useMemo(() => injectInspector(code), [code]);
+  const [previewCode, setPreviewCode] = useState(code);
+  const inspectorUpdateRef = useRef(false);
+  const enhancedCode = useMemo(() => injectInspector(previewCode), [previewCode]);
+
+  useEffect(() => {
+    if (inspectorUpdateRef.current) {
+      inspectorUpdateRef.current = false;
+      return;
+    }
+    if (deferPreviewSync) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPreviewCode(code);
+  }, [code, deferPreviewSync]);
 
   const postInspectMode = useCallback(() => {
     iframeRef.current?.contentWindow?.postMessage(
@@ -423,6 +437,7 @@ export function PreviewStage({
       if (!event.data || event.data.source !== 'framewright-inspector') return;
 
       if (event.data.type === 'code-updated' && typeof event.data.html === 'string') {
+        inspectorUpdateRef.current = true;
         onCodeChange(event.data.html);
       }
 
