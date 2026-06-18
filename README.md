@@ -30,9 +30,11 @@ Framewright adds the missing interaction layer:
 - Double-click text to edit copy inline.
 - Structured gesture ledger for `move`, `resize`, and `editText`.
 - Gesture ledger preview, clear action, and JSON export.
+- Optional background compile mode that runs after the user pauses visual editing.
 - OpenAI-compatible streaming chat completions.
 - Layout compiler prompt that asks the model to remove temporary transforms and inline sizing.
 - Local compile checks for leftover temporary attributes, transforms, and inline pixel sizing.
+- Copy/export actions are locked while visual edits have not caught up to compiled code.
 - Parent page validates `postMessage` events against the active iframe window.
 - Runtime validation for inspector message payloads.
 

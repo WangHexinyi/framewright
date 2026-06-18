@@ -40,9 +40,11 @@ Framewright 想补上的就是这层交互：
 - 双击文本进行行内编辑。
 - 记录 `move`、`resize`、`editText` 三类结构化手势。
 - 手势账本预览、清空和 JSON 导出。
+- 可选后台编译模式：用户停止视觉编辑后自动让 AI 在后台同步代码。
 - 支持 OpenAI-compatible 的流式 `/chat/completions` 接口。
 - 内置 layout compiler prompt，引导模型移除临时 transform 和 inline sizing。
 - 对 AI 编译结果做本地检查，提示残留的临时属性、transform 和像素级 inline 尺寸。
+- 当视觉编辑还没同步成干净代码时，复制/导出类操作会被锁定。
 - 父页面只接收来自当前 iframe window 的 `postMessage`。
 - 对 inspector 消息 payload 做运行时校验。
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PreviewStage } from './components/PreviewStage';
 import {
   buildLayoutCompileUserPrompt,
@@ -9,6 +9,8 @@ import { validateCompiledHtml, type CompileIssue } from './services/validation';
 import type { ApiConfig, GestureOperation, Message, SelectedElement } from './types';
 
 const STORAGE_KEY = 'framewright.apiConfig';
+
+type CompileState = 'idle' | 'dirty' | 'queued' | 'compiling' | 'synced' | 'stale' | 'failed';
 
 const DEFAULT_CONFIG: ApiConfig = {
   apiKey: '',
@@ -129,6 +131,11 @@ function App() {
   const [streamText, setStreamText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [compileIssues, setCompileIssues] = useState<CompileIssue[]>([]);
+  const [autoCompileEnabled, setAutoCompileEnabled] = useState(false);
+  const [compileState, setCompileState] = useState<CompileState>('idle');
+  const compileVersionRef = useRef(0);
+  const activeCompileRef = useRef(false);
+  const autoCompileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
@@ -143,13 +150,18 @@ function App() {
   }, [operations]);
 
   const handleCodeChange = useCallback((nextCode: string) => {
+    compileVersionRef.current += 1;
     setCode(nextCode);
     setCompileIssues([]);
+    setCompileState('dirty');
   }, []);
 
   const handleOperation = useCallback((operation: GestureOperation) => {
+    compileVersionRef.current += 1;
     setOperations((prev) => [operation, ...prev].slice(0, 80));
-  }, []);
+    setCompileIssues([]);
+    setCompileState(autoCompileEnabled ? 'queued' : 'dirty');
+  }, [autoCompileEnabled]);
 
   async function runAi(nextMessages: Message[]) {
     if (!hasApiKey) {
@@ -197,6 +209,7 @@ Return a complete responsive single-file HTML prototype.`,
       setMessages((prev) => [...prev, { role: 'assistant', content: response }]);
       setOperations([]);
       setCompileIssues([]);
+      setCompileState('synced');
     }
   }
 
@@ -225,8 +238,80 @@ Return a complete responsive single-file HTML prototype.`,
       setOperations([]);
       setInspectMode(false);
       setSelectedElement(null);
+      setCompileState('synced');
     }
   }
+
+  const runBackgroundCompile = useCallback(async () => {
+    if (operations.length === 0 || activeCompileRef.current) return;
+    if (!hasApiKey) {
+      setCompileState('failed');
+      return;
+    }
+
+    const startedVersion = compileVersionRef.current;
+    const userMessage: Message = {
+      role: 'user',
+      content: buildLayoutCompileUserPrompt(code, operations.slice().reverse()),
+    };
+
+    activeCompileRef.current = true;
+    setCompileState('compiling');
+    setError(null);
+
+    try {
+      const response = await streamChatCompletion(config, [...messages.slice(-4), userMessage], () => {
+        // Keep the live canvas uninterrupted during background compilation.
+      });
+      const html = extractHtmlBlock(response);
+
+      if (!html) {
+        setCompileState('failed');
+        return;
+      }
+
+      if (compileVersionRef.current === startedVersion) {
+        setCode(html);
+        setCompileIssues(validateCompiledHtml(html));
+        setMessages((prev) => [
+          ...prev,
+          { role: 'user', content: 'Background compile visual edits into clean responsive code.' },
+          { role: 'assistant', content: response },
+        ]);
+        setOperations([]);
+        setCompileState('synced');
+      } else {
+        setCompileState('stale');
+      }
+    } catch (err) {
+      setCompileState('failed');
+      setError(err instanceof Error ? err.message : 'Background compile failed.');
+    } finally {
+      activeCompileRef.current = false;
+      if (compileVersionRef.current !== startedVersion && autoCompileEnabled) {
+        setCompileState('queued');
+      }
+    }
+  }, [autoCompileEnabled, code, config, hasApiKey, messages, operations]);
+
+  useEffect(() => {
+    if (!autoCompileEnabled || operations.length === 0 || activeCompileRef.current) return;
+    if (compileState !== 'dirty' && compileState !== 'queued' && compileState !== 'stale') return;
+
+    if (autoCompileTimerRef.current) {
+      clearTimeout(autoCompileTimerRef.current);
+    }
+
+    autoCompileTimerRef.current = setTimeout(() => {
+      void runBackgroundCompile();
+    }, 1200);
+
+    return () => {
+      if (autoCompileTimerRef.current) {
+        clearTimeout(autoCompileTimerRef.current);
+      }
+    };
+  }, [autoCompileEnabled, compileState, operations, runBackgroundCompile]);
 
   function handleExportLedger() {
     const payload = JSON.stringify(operations.slice().reverse(), null, 2);
@@ -240,6 +325,8 @@ Return a complete responsive single-file HTML prototype.`,
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
   }
+
+  const isCodeExportLocked = operations.length > 0 || compileState === 'queued' || compileState === 'compiling' || compileState === 'stale';
 
   return (
     <main className="app-shell">
@@ -306,6 +393,24 @@ Return a complete responsive single-file HTML prototype.`,
               <span>resize {operationCountByType.resize ?? 0}</span>
               <span>text {operationCountByType.editText ?? 0}</span>
             </div>
+          </div>
+          <div className={`compile-status state-${compileState}`}>
+            <button
+              type="button"
+              className={autoCompileEnabled ? 'auto-compile active' : 'auto-compile'}
+              onClick={() => setAutoCompileEnabled((value) => !value)}
+            >
+              {autoCompileEnabled ? 'Auto compile on' : 'Auto compile off'}
+            </button>
+            <span>
+              {compileState === 'idle' && 'Code is ready.'}
+              {compileState === 'dirty' && 'Visual edits are not compiled yet.'}
+              {compileState === 'queued' && 'Waiting for you to pause.'}
+              {compileState === 'compiling' && 'AI is compiling in the background.'}
+              {compileState === 'synced' && 'Code has caught up.'}
+              {compileState === 'stale' && 'New edits arrived during compile.'}
+              {compileState === 'failed' && 'Compile needs attention.'}
+            </span>
           </div>
           <div className="ledger-actions">
             <button type="button" onClick={handleExportLedger} disabled={operations.length === 0}>
@@ -391,8 +496,8 @@ Return a complete responsive single-file HTML prototype.`,
       <aside className="code-panel">
         <header>
           <h2>Source</h2>
-          <button type="button" onClick={() => navigator.clipboard.writeText(code)}>
-            Copy
+          <button type="button" disabled={isCodeExportLocked} onClick={() => navigator.clipboard.writeText(code)}>
+            {isCodeExportLocked ? 'Syncing' : 'Copy'}
           </button>
         </header>
         <textarea value={code} onChange={(event) => setCode(event.target.value)} spellCheck={false} />

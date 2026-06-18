@@ -260,6 +260,46 @@ label input:focus {
   font-weight: 700;
 }
 
+.compile-status {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8efe4;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.compile-status.state-queued,
+.compile-status.state-compiling {
+  border-color: rgba(191, 91, 58, 0.35);
+  background: rgba(191, 91, 58, 0.08);
+  color: var(--accent-strong);
+}
+
+.compile-status.state-failed {
+  border-color: rgba(160, 43, 31, 0.28);
+  background: rgba(160, 43, 31, 0.08);
+  color: #8d281f;
+}
+
+.auto-compile {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper-strong);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.auto-compile.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
 .ledger-actions {
   display: grid;
   grid-template-columns: 1fr 84px;
@@ -475,6 +515,11 @@ label input {
   color: var(--ink);
   font-size: 12px;
   font-weight: 800;
+}
+
+.code-panel header button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .code-panel textarea {
