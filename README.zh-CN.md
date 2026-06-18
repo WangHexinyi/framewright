@@ -59,6 +59,13 @@ npm run dev
 npm run build
 ```
 
+## 部署
+
+见 [DEPLOYMENT.zh-CN.md](./DEPLOYMENT.zh-CN.md)。这是一个 Vite 静态应用，Vercel 和 Netlify 只需要：
+
+- Build command: `npm run build`
+- Output directory: `dist`
+
 ## API 设置
 
 Framewright 目前直接从浏览器调用 OpenAI-compatible `/chat/completions` 接口。

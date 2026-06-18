@@ -49,6 +49,13 @@ Build:
 npm run build
 ```
 
+## Deploy
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md). The app is a Vite static build, so Vercel and Netlify only need:
+
+- Build command: `npm run build`
+- Output directory: `dist`
+
 ## API setup
 
 Framewright calls an OpenAI-compatible `/chat/completions` endpoint from the browser.

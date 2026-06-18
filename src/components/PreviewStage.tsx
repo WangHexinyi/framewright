@@ -18,8 +18,42 @@ function buildInspectorScript(): string {
   var hoveredEl = null;
   var handle = null;
   var idCounter = 1;
+  var activeFrame = 0;
+  var pendingApply = null;
   var selectColor = 'rgba(191, 91, 58, 0.95)';
   var hoverColor = 'rgba(191, 91, 58, 0.55)';
+
+  function ensureInteractionStyle() {
+    if (document.getElementById('__framewright_interaction_style__')) return;
+    var style = document.createElement('style');
+    style.id = '__framewright_interaction_style__';
+    style.textContent = [
+      'html.__fw_interacting, html.__fw_interacting * {',
+      '  transition: none !important;',
+      '  animation-play-state: paused !important;',
+      '  scroll-behavior: auto !important;',
+      '}',
+      'html.__fw_interacting { cursor: grabbing !important; user-select: none !important; }',
+      '.__fw_resize_handle { touch-action: none; }'
+    ].join('\\n');
+    document.head.appendChild(style);
+  }
+
+  function setInteractionActive(active) {
+    ensureInteractionStyle();
+    document.documentElement.classList.toggle('__fw_interacting', active);
+  }
+
+  function scheduleApply(apply) {
+    pendingApply = apply;
+    if (activeFrame) return;
+    activeFrame = requestAnimationFrame(function() {
+      activeFrame = 0;
+      var fn = pendingApply;
+      pendingApply = null;
+      if (fn) fn();
+    });
+  }
 
   function uid() {
     return 'fw-' + Date.now().toString(36) + '-' + (idCounter++);
@@ -80,6 +114,8 @@ function buildInspectorScript(): string {
     var clone = document.documentElement.cloneNode(true);
     var injected = clone.querySelector('#__framewright_inspector__');
     if (injected) injected.remove();
+    var interactionStyle = clone.querySelector('#__framewright_interaction_style__');
+    if (interactionStyle) interactionStyle.remove();
     Array.prototype.forEach.call(clone.querySelectorAll('.__fw_resize_handle'), function(n) { n.remove(); });
     Array.prototype.forEach.call(clone.querySelectorAll('[contenteditable]'), function(n) { n.removeAttribute('contenteditable'); });
     return '<!DOCTYPE html>\\n' + clone.outerHTML;
@@ -121,8 +157,8 @@ function buildInspectorScript(): string {
   function placeHandle() {
     if (!selectedEl || !handle) return;
     var r = selectedEl.getBoundingClientRect();
-    handle.style.left = (r.right + window.scrollX - 7) + 'px';
-    handle.style.top = (r.bottom + window.scrollY - 7) + 'px';
+    handle.style.left = (r.right + window.scrollX - 9) + 'px';
+    handle.style.top = (r.bottom + window.scrollY - 9) + 'px';
   }
 
   function removeHandle() {
@@ -139,9 +175,9 @@ function buildInspectorScript(): string {
     handle.className = '__fw_resize_handle';
     Object.assign(handle.style, {
       position: 'absolute',
-      width: '14px',
-      height: '14px',
-      borderRadius: '4px',
+      width: '18px',
+      height: '18px',
+      borderRadius: '6px',
       background: selectColor,
       border: '2px solid white',
       cursor: 'nwse-resize',
@@ -176,6 +212,7 @@ function buildInspectorScript(): string {
     node.addEventListener('mousedown', function(e) {
       e.preventDefault();
       e.stopPropagation();
+      setInteractionActive(true);
       var before = rectOf(el);
       var startX = e.clientX;
       var startY = e.clientY;
@@ -183,12 +220,17 @@ function buildInspectorScript(): string {
       var startH = before.height;
 
       function move(ev) {
-        el.style.width = Math.max(32, startW + ev.clientX - startX) + 'px';
-        el.style.height = Math.max(24, startH + ev.clientY - startY) + 'px';
-        placeHandle();
+        var nextWidth = Math.max(32, startW + ev.clientX - startX);
+        var nextHeight = Math.max(24, startH + ev.clientY - startY);
+        scheduleApply(function() {
+          el.style.width = Math.round(nextWidth) + 'px';
+          el.style.height = Math.round(nextHeight) + 'px';
+          placeHandle();
+        });
       }
 
       function up() {
+        setInteractionActive(false);
         document.removeEventListener('mousemove', move);
         document.removeEventListener('mouseup', up);
         operation('resize', el, before, rectOf(el));
@@ -201,6 +243,7 @@ function buildInspectorScript(): string {
 
   function startMove(e, el) {
     e.preventDefault();
+    setInteractionActive(true);
     var before = rectOf(el);
     var startX = e.clientX;
     var startY = e.clientY;
@@ -218,12 +261,17 @@ function buildInspectorScript(): string {
     function move(ev) {
       var dx = ev.clientX - startX;
       var dy = ev.clientY - startY;
-      el.style.transform = 'translate(' + Math.round(baseX + dx) + 'px, ' + Math.round(baseY + dy) + 'px)';
-      el.style.willChange = 'transform';
-      placeHandle();
+      var nextX = Math.round(baseX + dx);
+      var nextY = Math.round(baseY + dy);
+      scheduleApply(function() {
+        el.style.transform = 'translate3d(' + nextX + 'px, ' + nextY + 'px, 0)';
+        el.style.willChange = 'transform';
+        placeHandle();
+      });
     }
 
     function up() {
+      setInteractionActive(false);
       document.removeEventListener('mousemove', move);
       document.removeEventListener('mouseup', up);
       el.style.willChange = '';
