@@ -52,9 +52,13 @@ function testAppIntegration() {
   requireText('src/App.tsx', 'planLayoutCompilePrompt');
   requireText('src/App.tsx', 'applyComponentPatch');
   requireText('src/App.tsx', 'synced-local');
+  requireText('src/App.tsx', 'stripRuntimeChrome');
   requireText('src/App.tsx', 'Roll back last patch');
   requireText('src/components/PreviewStage.tsx', 'data-block-id');
   requireText('src/components/PreviewStage.tsx', 'componentPath');
+  requireText('src/components/PreviewStage.tsx', '.__fw_inspect_hit_layer');
+  requireText('src/components/PreviewStage.tsx', '.__fw_selection_box,.__fw_selection_handle,.__fw_resize_handle,.__fw_inspect_hit_layer');
+  requireText('src/architecture/sourceEdit.ts', 'mergeInlineDeclarations');
 }
 
 testArchitectureExports();

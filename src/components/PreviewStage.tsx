@@ -334,11 +334,17 @@ function buildInspectorScript(): string {
     if (injected) injected.remove();
     var interactionStyle = clone.querySelector('#__framewright_interaction_style__');
     if (interactionStyle) interactionStyle.remove();
-    Array.prototype.forEach.call(clone.querySelectorAll('.__fw_selection_box,.__fw_selection_handle,.__fw_resize_handle'), function(n) { n.remove(); });
+    Array.prototype.forEach.call(clone.querySelectorAll('.__fw_selection_box,.__fw_selection_handle,.__fw_resize_handle,.__fw_inspect_hit_layer'), function(n) { n.remove(); });
     Array.prototype.forEach.call(clone.querySelectorAll('.moveable-control-box'), function(n) { n.remove(); });
     Array.prototype.forEach.call(clone.querySelectorAll('[data-fw-temp-id]'), function(n) {
       if (n.id && n.id.indexOf(tempIdPrefix) === 0) n.removeAttribute('id');
       n.removeAttribute('data-fw-temp-id');
+    });
+    Array.prototype.forEach.call(clone.querySelectorAll('[style]'), function(n) {
+      n.style.removeProperty('outline');
+      n.style.removeProperty('outline-offset');
+      n.style.removeProperty('will-change');
+      if (!n.getAttribute('style').trim()) n.removeAttribute('style');
     });
     Array.prototype.forEach.call(clone.querySelectorAll('[contenteditable]'), function(n) { n.removeAttribute('contenteditable'); });
     return '<!DOCTYPE html>\\n' + clone.outerHTML;
@@ -965,13 +971,8 @@ export function PreviewStage({
   const [device, setDevice] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [srcDoc, setSrcDoc] = useState(() => injectInspector(code));
   const iframeReadyRef = useRef(false);
-  const inspectorUpdateRef = useRef(false);
 
   useEffect(() => {
-    if (inspectorUpdateRef.current) {
-      inspectorUpdateRef.current = false;
-      return;
-    }
     if (deferPreviewSync) return;
 
     if (!code.trim()) {
@@ -1009,7 +1010,6 @@ export function PreviewStage({
       if (!event.data || event.data.source !== 'framewright-inspector') return;
 
       if (event.data.type === 'code-updated' && typeof event.data.html === 'string') {
-        inspectorUpdateRef.current = true;
         onCodeChange(event.data.html);
       }
 

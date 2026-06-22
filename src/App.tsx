@@ -360,6 +360,11 @@ function measureCodeDelta(before: string, after: string): { added: number; delet
   };
 }
 
+function stripRuntimeChrome(html: string): string {
+  if (!html.includes('__fw_inspect_hit_layer')) return html;
+  return html.replace(/<div class="__fw_inspect_hit_layer"[^>]*><\/div>/g, '');
+}
+
 function localSourceMetric(result: SourceEditResult): AiCallMetric {
   return {
     id: `metric_${Date.now().toString(36)}`,
@@ -487,11 +492,13 @@ function App() {
   }, [isLoading, streamText, t.streamEmpty]);
 
   const handleCodeChange = useCallback((nextCode: string) => {
+    const cleanedCode = stripRuntimeChrome(nextCode);
+    if (cleanedCode === code) return;
     compileVersionRef.current += 1;
-    setCode(nextCode);
+    setCode(cleanedCode);
     setCompileIssues([]);
     setCompileState('dirty');
-  }, []);
+  }, [code]);
 
   const handleOperation = useCallback((operation: GestureOperation) => {
     compileVersionRef.current += 1;

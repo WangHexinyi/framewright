@@ -133,6 +133,14 @@ function mergeScopedDeclarations(doc: Document, fwId: string, declarations: Reco
     : `${source.trim() ? `${source.trim()}\n\n` : ''}${rule}`;
 }
 
+function mergeInlineDeclarations(target: HTMLElement, declarations: Record<string, string>): void {
+  const map = readStyleMap(target.getAttribute('style'));
+  Object.entries(declarations).forEach(([property, value]) => {
+    if (value.trim()) map.set(property, value);
+  });
+  writeStyleMap(target, map);
+}
+
 function rectDelta(operation: GestureOperation): { x: number; y: number } {
   if (!operation.before || !operation.after) return { x: 0, y: 0 };
   return {
@@ -239,7 +247,11 @@ export function applyGestureBatchToHtmlSource(
       return;
     }
     mergeScopedDeclarations(doc, fwId, declarations);
-    removeInlineProperties(target, Object.keys(declarations));
+    if (operation.type === 'style') {
+      mergeInlineDeclarations(target, declarations);
+    } else {
+      removeInlineProperties(target, Object.keys(declarations));
+    }
     applied += 1;
   });
 
