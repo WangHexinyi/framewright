@@ -79,6 +79,11 @@ const COPY = {
     streamEmpty: 'The latest model response will appear here while streaming.',
     collapsePanel: 'Collapse controls',
     openPanel: 'Open controls',
+    closeSource: 'Collapse source',
+    openSource: 'Open source',
+    syncNudge: 'You have unsaved visual edits. Compile now or enable auto compile before copying/exporting.',
+    enableAuto: 'Enable auto compile',
+    saveNow: 'Save now',
     selected: 'Selected',
     kindText: 'Text',
     kindButton: 'Button',
@@ -124,6 +129,11 @@ const COPY = {
     streamEmpty: '模型流式响应会显示在这里。',
     collapsePanel: '收起控制栏',
     openPanel: '打开控制栏',
+    closeSource: '收起源码',
+    openSource: '打开源码',
+    syncNudge: '你有尚未保存到源码的可视化修改。复制或导出前请先保存，或开启自动编译。',
+    enableAuto: '开启自动编译',
+    saveNow: '立即保存',
     selected: '当前选中',
     kindText: '文本',
     kindButton: '按钮',
@@ -169,6 +179,11 @@ const COPY = {
     streamEmpty: 'La dernière réponse du modèle apparaîtra ici.',
     collapsePanel: 'Réduire les contrôles',
     openPanel: 'Ouvrir les contrôles',
+    closeSource: 'Réduire la source',
+    openSource: 'Ouvrir la source',
+    syncNudge: 'Vous avez des edits visuels non enregistrés. Compilez maintenant ou activez la compilation auto avant de copier/exporter.',
+    enableAuto: 'Activer auto',
+    saveNow: 'Enregistrer',
     selected: 'Sélection',
     kindText: 'Texte',
     kindButton: 'Bouton',
@@ -291,18 +306,55 @@ function readConfig(): ApiConfig {
   }
 }
 
-function readLayout(): { leftPanelOpen: boolean; workspaceRatio: number } {
+function readLayout(): { leftPanelOpen: boolean; codePanelOpen: boolean; codePanelWidth: number } {
   try {
     const saved = localStorage.getItem(LAYOUT_STORAGE_KEY);
-    if (!saved) return { leftPanelOpen: true, workspaceRatio: 0.72 };
-    const parsed = JSON.parse(saved) as Partial<{ leftPanelOpen: boolean; workspaceRatio: number }>;
+    if (!saved) return { leftPanelOpen: true, codePanelOpen: true, codePanelWidth: 420 };
+    const parsed = JSON.parse(saved) as Partial<{ leftPanelOpen: boolean; codePanelOpen: boolean; codePanelWidth: number }>;
     return {
       leftPanelOpen: parsed.leftPanelOpen ?? true,
-      workspaceRatio: Math.min(0.86, Math.max(0.38, parsed.workspaceRatio ?? 0.72)),
+      codePanelOpen: parsed.codePanelOpen ?? true,
+      codePanelWidth: Math.min(760, Math.max(320, parsed.codePanelWidth ?? 420)),
     };
   } catch {
-    return { leftPanelOpen: true, workspaceRatio: 0.72 };
+    return { leftPanelOpen: true, codePanelOpen: true, codePanelWidth: 420 };
   }
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function highlightHtmlCode(value: string): string {
+  return escapeHtml(value)
+    .replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="tok-comment">$1</span>')
+    .replace(/(&lt;\/?)([a-zA-Z][\w:-]*)/g, '$1<span class="tok-tag">$2</span>')
+    .replace(/([a-zA-Z_:][-a-zA-Z0-9_:.]*)(=)(&quot;.*?&quot;|'.*?'|&quot;.*?$)/g, '<span class="tok-attr">$1</span>$2<span class="tok-string">$3</span>')
+    .replace(/(#(?:[0-9a-fA-F]{3}){1,2})/g, '<span class="tok-color">$1</span>');
+}
+
+function measureCodeDelta(before: string, after: string): { added: number; deleted: number } {
+  if (before === after) return { added: 0, deleted: 0 };
+  const previous = before.split('\n');
+  const next = after.split('\n');
+  let prefix = 0;
+  while (prefix < previous.length && prefix < next.length && previous[prefix] === next[prefix]) prefix += 1;
+  let suffix = 0;
+  while (
+    suffix + prefix < previous.length &&
+    suffix + prefix < next.length &&
+    previous[previous.length - 1 - suffix] === next[next.length - 1 - suffix]
+  ) {
+    suffix += 1;
+  }
+  return {
+    added: Math.max(0, next.length - prefix - suffix),
+    deleted: Math.max(0, previous.length - prefix - suffix),
+  };
 }
 
 function localSourceMetric(result: SourceEditResult): AiCallMetric {
@@ -331,7 +383,8 @@ function App() {
   const [customColor, setCustomColor] = useState('#bf5b3a');
   const [cornerRadius, setCornerRadius] = useState(24);
   const [leftPanelOpen, setLeftPanelOpen] = useState(initialLayout.leftPanelOpen);
-  const [workspaceRatio, setWorkspaceRatio] = useState(initialLayout.workspaceRatio);
+  const [codePanelOpen, setCodePanelOpen] = useState(initialLayout.codePanelOpen);
+  const [codePanelWidth, setCodePanelWidth] = useState(initialLayout.codePanelWidth);
   const [inspectMode, setInspectMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [streamText, setStreamText] = useState('');
@@ -346,14 +399,23 @@ function App() {
   const activeCompileRef = useRef(false);
   const autoCompileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appShellRef = useRef<HTMLElement | null>(null);
+  const codeHighlightRef = useRef<HTMLPreElement | null>(null);
+  const previousCodeRef = useRef(STARTER_HTML);
+  const [codeDelta, setCodeDelta] = useState({ added: 0, deleted: 0 });
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
   }, [config]);
 
   useEffect(() => {
-    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify({ leftPanelOpen, workspaceRatio }));
-  }, [leftPanelOpen, workspaceRatio]);
+    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify({ leftPanelOpen, codePanelOpen, codePanelWidth }));
+  }, [leftPanelOpen, codePanelOpen, codePanelWidth]);
+
+  useEffect(() => {
+    const previous = previousCodeRef.current;
+    setCodeDelta(measureCodeDelta(previous, code));
+    previousCodeRef.current = code;
+  }, [code]);
 
   const hasApiKey = config.apiKey.trim().length > 0;
   const architecture = useMemo(() => buildComponentArchitecture(code, 'framewright'), [code]);
@@ -368,6 +430,8 @@ function App() {
       return acc;
     }, {});
   }, [operations]);
+
+  const highlightedCode = useMemo(() => highlightHtmlCode(code), [code]);
 
   const handleCodeChange = useCallback((nextCode: string) => {
     compileVersionRef.current += 1;
@@ -702,19 +766,15 @@ Return a complete responsive single-file HTML prototype.`,
     setCompileState('idle');
   }
 
-  function beginWorkspaceResize(event: React.PointerEvent<HTMLButtonElement>) {
+  function beginSourceResize(event: React.PointerEvent<HTMLButtonElement>) {
     event.preventDefault();
     const shell = appShellRef.current;
     if (!shell) return;
     const rect = shell.getBoundingClientRect();
-    const leftWidth = leftPanelOpen ? 340 : 0;
-    const fixedGapWidth = leftPanelOpen ? 28 : 16;
-    const available = Math.max(520, rect.width - leftWidth - fixedGapWidth - 24);
 
     function move(pointerEvent: PointerEvent) {
-      const workspaceLeft = rect.left + 12 + leftWidth + (leftPanelOpen ? 12 : 0);
-      const next = (pointerEvent.clientX - workspaceLeft) / available;
-      setWorkspaceRatio(Math.min(0.86, Math.max(0.38, next)));
+      const next = rect.right - pointerEvent.clientX - 12;
+      setCodePanelWidth(Math.min(760, Math.max(320, next)));
     }
 
     function up() {
@@ -734,13 +794,17 @@ Return a complete responsive single-file HTML prototype.`,
     : '';
   const shellStyle = {
     '--left-panel-width': leftPanelOpen ? '340px' : '0px',
-    '--preview-ratio': workspaceRatio,
+    '--code-panel-width': `${codePanelWidth}px`,
   } as CSSProperties;
 
   return (
     <main
       ref={appShellRef}
-      className={leftPanelOpen ? 'app-shell' : 'app-shell left-collapsed'}
+      className={[
+        'app-shell',
+        leftPanelOpen ? '' : 'left-collapsed',
+        codePanelOpen ? '' : 'code-collapsed',
+      ].filter(Boolean).join(' ')}
       style={shellStyle}
     >
       {!leftPanelOpen && (
@@ -768,7 +832,7 @@ Return a complete responsive single-file HTML prototype.`,
             aria-label={t.collapsePanel}
             title={t.collapsePanel}
           >
-            ‹
+            {'<'}
           </button>
         </header>
 
@@ -1057,22 +1121,81 @@ Return a complete responsive single-file HTML prototype.`,
         />
       </div>
 
-      <button
-        type="button"
-        className="workspace-resizer"
-        onPointerDown={beginWorkspaceResize}
-        aria-label="Resize preview and source panels"
-        title="Drag to resize preview/source"
-      />
+      {operations.length > 0 && !autoCompileEnabled && (
+        <div className="sync-nudge" role="status">
+          <span>{t.syncNudge}</span>
+          <button type="button" onClick={() => setAutoCompileEnabled(true)}>
+            {t.enableAuto}
+          </button>
+          <button type="button" onClick={() => void handleCompileLayout()}>
+            {t.saveNow}
+          </button>
+        </div>
+      )}
 
-      <aside className="code-panel">
+      <div className="code-delta-lens" aria-live="polite">
+        <span className="delta-added">{`+${codeDelta.added}`}</span>
+        <span className="delta-deleted">{`-${codeDelta.deleted}`}</span>
+      </div>
+
+      {!codePanelOpen && (
+        <button
+          type="button"
+          className="source-tab"
+          onClick={() => setCodePanelOpen(true)}
+          aria-label={t.openSource}
+          title={t.openSource}
+        >
+          {'</>'}
+        </button>
+      )}
+
+      {codePanelOpen && (
+        <button
+          type="button"
+          className="workspace-resizer"
+          onPointerDown={beginSourceResize}
+          aria-label="Resize source panel"
+          title="Drag to resize source panel"
+        />
+      )}
+
+      <aside className="code-panel" aria-hidden={!codePanelOpen}>
         <header>
           <h2>{t.source}</h2>
-          <button type="button" disabled={isCodeExportLocked} onClick={() => navigator.clipboard.writeText(code)}>
-            {isCodeExportLocked ? t.syncing : t.copy}
-          </button>
+          <div className="code-actions">
+            <button type="button" disabled={isCodeExportLocked} onClick={() => navigator.clipboard.writeText(code)}>
+              {isCodeExportLocked ? t.syncing : t.copy}
+            </button>
+            <button
+              type="button"
+              className="panel-collapse-button"
+              onClick={() => setCodePanelOpen(false)}
+              aria-label={t.closeSource}
+              title={t.closeSource}
+            >
+              {'>'}
+            </button>
+          </div>
         </header>
-        <textarea value={code} onChange={(event) => handleCodeChange(event.target.value)} spellCheck={false} />
+        <div className="code-editor">
+          <pre
+            ref={codeHighlightRef}
+            className="code-highlight"
+            aria-hidden="true"
+            dangerouslySetInnerHTML={{ __html: highlightedCode }}
+          />
+          <textarea
+            value={code}
+            onChange={(event) => handleCodeChange(event.target.value)}
+            onScroll={(event) => {
+              if (!codeHighlightRef.current) return;
+              codeHighlightRef.current.scrollTop = event.currentTarget.scrollTop;
+              codeHighlightRef.current.scrollLeft = event.currentTarget.scrollLeft;
+            }}
+            spellCheck={false}
+          />
+        </div>
         <div className="stream-box">
           <strong>{t.modelStream}</strong>
           <p>{streamText || t.streamEmpty}</p>
