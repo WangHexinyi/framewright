@@ -81,7 +81,9 @@ npm run preview
 
 ## API Configuration
 
-Framewright calls an OpenAI-compatible `/chat/completions` endpoint from the browser.
+Framewright calls an OpenAI-compatible `/chat/completions` endpoint. In local Vite dev/preview on
+`localhost` or `127.0.0.1`, requests go through the built-in local proxy at
+`/api/framewright/chat/completions` to avoid browser CORS failures during first-run testing.
 
 Default local settings:
 
@@ -97,6 +99,7 @@ For public hosted deployments, do not expose provider API keys in browser JavaSc
 Advanced local configuration notes:
 
 - Any OpenAI-compatible endpoint can be used if it supports streaming chat completions.
+- Restart the Vite dev server after pulling updates so the local API proxy is registered.
 - Keep prompts component-scoped when possible; Framewright's prompt pruning is designed to send target HTML, related scoped CSS, parent context, and recent gestures instead of the full document.
 - Do not commit API keys to the repository. Use the in-browser settings only for local experiments.
 

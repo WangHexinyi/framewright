@@ -107,23 +107,32 @@ export async function streamChatCompletion(
   messages: Message[],
   onChunk: (chunk: string) => void,
 ): Promise<string> {
-  const response = await fetch(`${config.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+  const useLocalProxy =
+    typeof window !== 'undefined' &&
+    ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname) &&
+    !config.baseUrl.startsWith('/');
+  const response = await fetch(
+    useLocalProxy ? '/api/framewright/chat/completions' : `${config.baseUrl.replace(/\/$/, '')}/chat/completions`,
+    {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`,
+      ...(!useLocalProxy ? { Authorization: `Bearer ${config.apiKey}` } : {}),
     },
     body: JSON.stringify({
+      baseUrl: config.baseUrl,
+      apiKey: useLocalProxy ? config.apiKey : undefined,
       model: config.model,
       stream: true,
       temperature: 0.7,
       messages: [{ role: 'system', content: DEFAULT_SYSTEM_PROMPT }, ...messages],
     }),
-  });
+    },
+  );
 
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(`API ${response.status}: ${detail}`);
+    throw new Error(`API ${response.status}: ${detail || response.statusText}`);
   }
 
   if (!response.body) throw new Error('Streaming response body is empty.');
