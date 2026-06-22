@@ -1,4 +1,5 @@
 import type { ApiConfig, GestureOperation, Message } from '../types';
+import { buildComponentPrompt, type ComponentArchitecture, type PromptBuildResult, type PromptCacheEntry } from '../architecture';
 
 const DEFAULT_SYSTEM_PROMPT = `You are Framewright, a senior front-end engineer and product-minded UI designer.
 
@@ -8,6 +9,9 @@ Generate complete, single-file HTML prototypes with:
 - optional vanilla JavaScript inside <script>
 - no external build step
 - responsive layout by default
+- stable data-frame-id attributes on meaningful layout and content elements
+
+When updating an existing prototype, preserve every matching data-frame-id exactly. These keys are used by the preview engine to keep DOM state, focus, and visual edits stable.
 
 Return a short note, then exactly one fenced html code block.`;
 
@@ -19,6 +23,7 @@ The user visually edited an AI-generated interface by dragging, resizing, and ed
 
 Your task:
 - Infer the user's layout intent from the gesture ledger.
+- Use targetKey/frameId values to identify edited elements. Treat selectorPath only as a fallback diagnostic.
 - Replace temporary pixel-level edits with maintainable responsive CSS.
 - Prefer flex, grid, gap, padding, margin, max-width, minmax(), clamp(), rem, %, vw/vh where appropriate.
 - Remove temporary transform translations caused by dragging.
@@ -51,7 +56,22 @@ export function extractHtmlBlock(text: string): string | null {
   return null;
 }
 
-export function buildLayoutCompileUserPrompt(html: string, operations: GestureOperation[]): string {
+export function buildLayoutCompileUserPrompt(
+  html: string,
+  operations: GestureOperation[],
+  architecture?: ComponentArchitecture,
+  componentId?: string | null,
+): string {
+  if (architecture) {
+    return buildComponentPrompt({
+      architecture,
+      componentId: componentId ?? null,
+      html,
+      operations,
+      instruction: LAYOUT_COMPILE_PROMPT,
+    }).prompt;
+  }
+
   return `${LAYOUT_COMPILE_PROMPT}
 
 Gesture ledger:
@@ -63,6 +83,23 @@ Current HTML with temporary visual edits:
 \`\`\`html
 ${html}
 \`\`\``;
+}
+
+export function planLayoutCompilePrompt(
+  html: string,
+  operations: GestureOperation[],
+  architecture: ComponentArchitecture,
+  componentId?: string | null,
+  cache?: PromptCacheEntry[],
+): PromptBuildResult {
+  return buildComponentPrompt({
+    architecture,
+    componentId: componentId ?? null,
+    html,
+    operations,
+    instruction: LAYOUT_COMPILE_PROMPT,
+    cache,
+  });
 }
 
 export async function streamChatCompletion(

@@ -2,74 +2,180 @@
 
 [简体中文](./README.zh-CN.md)
 
-Framewright is an AI interface sandbox for people who can judge design better than they can rewrite front-end code.
-
-Generate a single-file HTML interface, visually reshape it in a sandboxed preview, then ask the model to compile those gestures into clean responsive CSS.
+Framewright is an open-source visual editing framework for AI-generated front-end prototypes. It lets users generate a single-file HTML interface, reshape it directly in a sandboxed preview, and keep the source HTML, preview canvas, history, rollback, copy, and export paths in sync.
 
 > Shape first. Code follows.
 
-## Why this exists
+![Framewright app screenshot](./docs/assets/framewright-app.png)
 
-Current AI front-end tools are good at generating a first draft, but weak at letting users directly express visual judgment. If a card should be wider, a hero should move up, or spacing should feel tighter, users are forced back into natural language.
+## What It Does
 
-Framewright adds the missing interaction layer:
+Framewright is focused on the editing technology, not a demo target app. The core idea is a dual-layer editing pipeline:
 
-1. AI generates an interface.
-2. The user edits the result visually.
-3. Framewright records those edits as structured gestures.
-4. AI receives the HTML plus gesture ledger.
-5. AI rewrites the layout as maintainable responsive code.
+1. AI generates or updates a self-contained HTML prototype.
+2. The user selects, drags, resizes, and edits elements in an iframe preview.
+3. Framewright records every visual change as a structured gesture.
+4. Simple edits are applied immediately to the authoritative HTML source through a DOM AST adapter.
+5. Complex structural edits are routed to an AI surgical patch flow.
+6. The updated source is synced back to the preview and stored in rollback history.
 
-## MVP features
+This avoids waiting for a model when the edit is deterministic, while still preserving AI help for complex layout or creative changes.
 
-- React + TypeScript + Vite app.
+```mermaid
+flowchart LR
+  Prompt["AI prompt"] --> HTML["Single-file HTML"]
+  HTML --> Preview["Sandboxed iframe preview"]
+  Preview --> Gesture["Gesture ledger"]
+  Gesture --> Router["Edit router"]
+  Router -->|simple| AST["Local DOM AST writeback"]
+  Router -->|complex| AI["AI surgical patch"]
+  AST --> Source["Authoritative source"]
+  AI --> Source
+  Source --> Preview
+  Source --> Export["Copy / export / rollback"]
+```
+
+## Features
+
+- React + TypeScript + Vite application.
 - Sandboxed iframe preview using `srcdoc`.
-- Inspect mode for selecting elements.
-- Drag selected elements to move them.
-- Resize selected elements with a handle.
-- Double-click text to edit copy inline.
-- Structured gesture ledger for `move`, `resize`, and `editText`.
-- Gesture ledger preview, clear action, and JSON export.
-- Optional background compile mode that runs after the user pauses visual editing.
+- Inspect mode with hover, selection, drag, resize, and inline text editing.
+- Stable ID mapping with `data-fw-id`, `data-block-id`, and `data-frame-id`.
+- Virtual component tree, component registry, shadow mapping, and scoped CSS extraction.
+- Dual-layer source editing through `SourceEditAdapter`.
+- Local DOM AST fast path for size, position, text, and style edits.
+- AI surgical patch fallback for complex layout or structural changes.
+- Patch snapshots and rollback ledger.
+- Prompt pruning, semantic cache metadata, and AI call metrics.
+- Architecture audit script that checks the required modular capabilities.
+- Copy/export locking while unsafe background sync is running.
 - OpenAI-compatible streaming chat completions.
-- Layout compiler prompt that asks the model to remove temporary transforms and inline sizing.
-- Local compile checks for leftover temporary attributes, transforms, and inline pixel sizing.
-- Copy/export actions are locked while visual edits have not caught up to compiled code.
-- Parent page validates `postMessage` events against the active iframe window.
-- Runtime validation for inspector message payloads.
 
-## Run locally
+## Requirements
+
+- Node.js 24 or newer
+- npm
+- An OpenAI-compatible chat completions endpoint if you want AI generation or AI patching
+
+The app can still run locally without a model key, but AI generation and AI fallback routes will not work until API settings are configured.
+
+## Quick Start
 
 ```bash
 npm install
 npm run dev
 ```
 
-Build:
+Open the Vite URL shown in the terminal, usually:
+
+```text
+http://localhost:5173
+```
+
+Production build:
 
 ```bash
 npm run build
+npm run preview
 ```
 
-## Deploy
-
-See [DEPLOYMENT.md](./DEPLOYMENT.md). The app is a Vite static build, so Vercel and Netlify only need:
-
-- Build command: `npm run build`
-- Output directory: `dist`
-
-## API setup
+## API Configuration
 
 Framewright calls an OpenAI-compatible `/chat/completions` endpoint from the browser.
 
-Default values:
+Default local settings:
 
 - Base URL: `https://api.deepseek.com/v1`
 - Model: `deepseek-chat`
 
-For local experimentation this is convenient. For a public hosted deployment, route model calls through a backend proxy so API keys never live in the browser.
+For public hosted deployments, do not expose provider API keys in browser JavaScript. Put model calls behind a backend proxy:
 
-## Security notes
+1. Browser sends prompt and gesture data to your backend.
+2. Backend attaches the provider API key.
+3. Backend streams the model response back to the browser.
+
+## How To Use
+
+1. Enter a prompt and generate an interface.
+2. Turn on Inspect.
+3. Click an element to select it.
+4. Drag the selected element to move it.
+5. Use the resize handle to change size.
+6. Double-click text to edit copy inline.
+7. Review the gesture ledger and component tree.
+8. Let local source AST sync apply simple edits immediately.
+9. Use AI compile only when the edit needs structural reasoning.
+10. Copy or export once sync is complete.
+
+## Editing Model
+
+Framewright has two editing layers:
+
+- Source layer: the authoritative single-file HTML document shown in the source panel.
+- Prototype layer: the iframe preview used for visual interaction.
+
+The source layer is the source of truth for copy, export, rollback, prompt construction, and history. The preview layer captures interactions and mirrors the latest source state.
+
+Simple edits use the local source AST path:
+
+- `resize`
+- `move`
+- `editText`
+- safe style changes
+
+Those edits are written back as scoped source updates, usually under:
+
+```html
+<style data-fw-scope="fw-source-edits">
+```
+
+Complex edits use AI fallback:
+
+- adding or deleting components
+- large layout restructuring
+- changes that cannot be safely mapped to one target
+- ambiguous natural-language instructions
+
+## Architecture
+
+Important modules live under `src/architecture`:
+
+- `dom.ts`: component tree, registry, ID injection, scoped CSS, shadow mapping
+- `sourceEdit.ts`: HTML source adapter and local DOM AST fast path
+- `prompt.ts`: component-scoped prompt pruning, route metadata, cache key generation
+- `patch.ts`: patch snapshots, component replacement validation, rollback helpers
+- `metrics.ts`: AI/local route timing and prompt metrics
+- `manifest.ts`: modular runtime manifest for future micro-frontend extraction
+
+Architecture decision records are in:
+
+```text
+docs/architecture/
+```
+
+See the illustrated architecture guide: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
+
+## Scripts
+
+```bash
+npm run dev                 # Start local dev server
+npm run build               # Type-check and build production assets
+npm run preview             # Preview production build locally
+npm run lint                # Run ESLint
+npm run test                # Run architecture tests
+npm run audit:architecture  # Verify required modular architecture capabilities
+```
+
+Before publishing or opening a pull request, run:
+
+```bash
+npm run lint
+npm run build
+npm run test
+npm run audit:architecture
+```
+
+## Security Notes
 
 Generated HTML runs in an iframe with:
 
@@ -77,20 +183,35 @@ Generated HTML runs in an iframe with:
 sandbox="allow-scripts allow-forms allow-modals allow-popups"
 ```
 
-The sandbox intentionally does not include `allow-same-origin`, so generated scripts should not be able to read the parent page's `localStorage`.
+The iframe intentionally does not use `allow-same-origin`, so generated code should not share the parent app origin or directly read parent `localStorage`.
 
-The parent also ignores inspector messages unless `event.source` matches the current iframe `contentWindow`.
+Important cautions:
 
-This is still an early prototype. Treat untrusted generated HTML carefully, especially before adding file access, account auth, deployment, or plugin capabilities.
+- Generated HTML can run JavaScript inside the iframe.
+- Generated HTML can make browser network requests.
+- Browser-stored API keys are only acceptable for local experimentation.
+- Public deployments should use a backend proxy for model calls.
+- Treat untrusted generated HTML carefully before adding file access, auth, plugin systems, or deployment automation.
+
+See [SECURITY.md](./SECURITY.md).
+
+## Deployment
+
+Framewright is a static Vite app. See [DEPLOYMENT.md](./DEPLOYMENT.md).
+
+Common settings:
+
+- Build command: `npm run build`
+- Output directory: `dist`
 
 ## Roadmap
 
 See [ROADMAP.md](./ROADMAP.md).
 
-## Security
+## Contributing
 
-See [SECURITY.md](./SECURITY.md).
+Contributions are welcome. Please read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening issues or pull requests.
 
 ## License
 
-MIT
+MIT. See [LICENSE](./LICENSE).

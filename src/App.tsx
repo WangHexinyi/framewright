@@ -1,16 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PreviewStage } from './components/PreviewStage';
 import {
-  buildLayoutCompileUserPrompt,
   extractHtmlBlock,
+  planLayoutCompilePrompt,
   streamChatCompletion,
 } from './services/llm';
 import { validateCompiledHtml, type CompileIssue } from './services/validation';
 import type { ApiConfig, GestureOperation, Message, SelectedElement } from './types';
+import {
+  applyComponentPatch,
+  applyGestureBatchToHtmlSource,
+  buildComponentArchitecture,
+  createAiCallMetric,
+  createPatchVersion,
+  restorePatchVersion,
+  summarizeArchitectureCoverage,
+  summarizeMetrics,
+  type AiCallMetric,
+  type PatchVersion,
+  type PromptCacheEntry,
+  type SourceEditResult,
+} from './architecture';
 
 const STORAGE_KEY = 'framewright.apiConfig';
 
-type CompileState = 'idle' | 'dirty' | 'queued' | 'compiling' | 'synced' | 'stale' | 'failed';
+type CompileState = 'idle' | 'dirty' | 'queued' | 'compiling' | 'synced' | 'synced-local' | 'stale' | 'failed';
 
 const DEFAULT_CONFIG: ApiConfig = {
   apiKey: '',
@@ -119,6 +133,19 @@ function readConfig(): ApiConfig {
   }
 }
 
+function localSourceMetric(result: SourceEditResult): AiCallMetric {
+  return {
+    id: `metric_${Date.now().toString(36)}`,
+    componentId: result.actionId,
+    route: result.route,
+    promptChars: 0,
+    cacheHit: true,
+    responseMs: result.elapsedMs,
+    patchApplied: result.applied,
+    createdAt: Date.now(),
+  };
+}
+
 function App() {
   const [config, setConfig] = useState<ApiConfig>(readConfig);
   const [prompt, setPrompt] = useState('Design a premium landing page for a calm AI writing app.');
@@ -133,6 +160,9 @@ function App() {
   const [compileIssues, setCompileIssues] = useState<CompileIssue[]>([]);
   const [autoCompileEnabled, setAutoCompileEnabled] = useState(false);
   const [compileState, setCompileState] = useState<CompileState>('idle');
+  const [patchVersions, setPatchVersions] = useState<PatchVersion[]>([]);
+  const [aiMetrics, setAiMetrics] = useState<AiCallMetric[]>([]);
+  const [promptCache, setPromptCache] = useState<PromptCacheEntry[]>([]);
   const compileVersionRef = useRef(0);
   const activeCompileRef = useRef(false);
   const autoCompileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -142,6 +172,11 @@ function App() {
   }, [config]);
 
   const hasApiKey = config.apiKey.trim().length > 0;
+  const architecture = useMemo(() => buildComponentArchitecture(code, 'framewright'), [code]);
+  const architectureCoverage = useMemo(
+    () => summarizeArchitectureCoverage(architecture.registry, architecture.scopedCss),
+    [architecture],
+  );
   const operationCountByType = useMemo(() => {
     return operations.reduce<Record<string, number>>((acc, operation) => {
       acc[operation.type] = (acc[operation.type] ?? 0) + 1;
@@ -158,12 +193,29 @@ function App() {
 
   const handleOperation = useCallback((operation: GestureOperation) => {
     compileVersionRef.current += 1;
-    setOperations((prev) => [operation, ...prev].slice(0, 80));
+    setOperations((prev) => {
+      const latest = prev[0];
+      if (
+        latest &&
+        latest.type === operation.type &&
+        latest.type !== 'editText' &&
+        latest.frameId === operation.frameId
+      ) {
+        return [
+          {
+            ...operation,
+            before: latest.before,
+          },
+          ...prev.slice(1),
+        ].slice(0, 80);
+      }
+      return [operation, ...prev].slice(0, 80);
+    });
     setCompileIssues([]);
     setCompileState(autoCompileEnabled ? 'queued' : 'dirty');
   }, [autoCompileEnabled]);
 
-  async function runAi(nextMessages: Message[]) {
+  async function runAi(nextMessages: Message[], streamToCode = true) {
     if (!hasApiKey) {
       setError('Add an OpenAI-compatible API key before calling the model.');
       return null;
@@ -179,11 +231,11 @@ function App() {
         streamed += chunk;
         setStreamText(streamed);
         const partialHtml = extractHtmlBlock(streamed);
-        if (partialHtml) setCode(partialHtml);
+        if (partialHtml && streamToCode) setCode(partialHtml);
       });
 
       const html = extractHtmlBlock(response);
-      if (html) setCode(html);
+      if (html && streamToCode) setCode(html);
       return response;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown API error.');
@@ -219,16 +271,58 @@ Return a complete responsive single-file HTML prototype.`,
       return;
     }
 
+    const orderedOperations = operations.slice().reverse();
+    const sourceEdit = applyGestureBatchToHtmlSource(code, orderedOperations, architecture);
+    if (sourceEdit.applied) {
+      setPatchVersions((prev) => [
+        createPatchVersion(architecture, sourceEdit.actionId, code, 'local source AST edit'),
+        ...prev,
+      ].slice(0, 20));
+      setCode(sourceEdit.code);
+      setCompileIssues([...sourceEdit.issues, ...validateCompiledHtml(sourceEdit.code)]);
+      setAiMetrics((prev) => [localSourceMetric(sourceEdit), ...prev].slice(0, 50));
+      setMessages((prev) => [
+        ...prev,
+        { role: 'user', content: `Saved ${orderedOperations.length} source AST edits without AI.` },
+      ]);
+      setOperations([]);
+      setInspectMode(false);
+      setSelectedElement(null);
+      setCompileState('synced-local');
+      return;
+    }
+
+    const promptPlan = planLayoutCompilePrompt(
+      code,
+      orderedOperations,
+      architecture,
+      selectedElement?.componentId || selectedElement?.blockId || operations[0]?.componentId || operations[0]?.blockId,
+      promptCache,
+    );
+    const startedAt = Date.now();
+    setPatchVersions((prev) => [
+      createPatchVersion(architecture, promptPlan.componentId, code, 'manual compile'),
+      ...prev,
+    ].slice(0, 20));
+
     const userMessage: Message = {
       role: 'user',
-      content: buildLayoutCompileUserPrompt(code, operations.slice().reverse()),
+      content: promptPlan.prompt,
     };
-    const response = await runAi([...messages.slice(-4), userMessage]);
+    const response = await runAi([...messages.slice(-4), userMessage], false);
 
     if (response) {
       const html = extractHtmlBlock(response);
       if (html) {
-        setCompileIssues(validateCompiledHtml(html));
+        const patched = applyComponentPatch(architecture.html, promptPlan.blockId, html);
+        const nextCode = patched || (/<html[\s>]|<!doctype html>/i.test(html) ? html : code);
+        setCode(nextCode);
+        setCompileIssues(validateCompiledHtml(nextCode));
+        setPromptCache((prev) => [
+          { key: promptPlan.cacheKey, prompt: promptPlan.prompt, response, createdAt: Date.now() },
+          ...prev,
+        ].slice(0, 30));
+        setAiMetrics((prev) => [createAiCallMetric(promptPlan, startedAt, Boolean(patched || html)), ...prev].slice(0, 50));
       }
       setMessages((prev) => [
         ...prev,
@@ -244,15 +338,37 @@ Return a complete responsive single-file HTML prototype.`,
 
   const runBackgroundCompile = useCallback(async () => {
     if (operations.length === 0 || activeCompileRef.current) return;
+    const orderedOperations = operations.slice().reverse();
+    const sourceEdit = applyGestureBatchToHtmlSource(code, orderedOperations, architecture);
+    if (sourceEdit.applied) {
+      setPatchVersions((prev) => [
+        createPatchVersion(architecture, sourceEdit.actionId, code, 'background local source AST edit'),
+        ...prev,
+      ].slice(0, 20));
+      setCode(sourceEdit.code);
+      setCompileIssues([...sourceEdit.issues, ...validateCompiledHtml(sourceEdit.code)]);
+      setAiMetrics((prev) => [localSourceMetric(sourceEdit), ...prev].slice(0, 50));
+      setOperations([]);
+      setCompileState('synced-local');
+      return;
+    }
     if (!hasApiKey) {
       setCompileState('failed');
       return;
     }
 
+    const promptPlan = planLayoutCompilePrompt(
+      code,
+      orderedOperations,
+      architecture,
+      selectedElement?.componentId || selectedElement?.blockId || operations[0]?.componentId || operations[0]?.blockId,
+      promptCache,
+    );
     const startedVersion = compileVersionRef.current;
+    const startedAt = Date.now();
     const userMessage: Message = {
       role: 'user',
-      content: buildLayoutCompileUserPrompt(code, operations.slice().reverse()),
+      content: promptPlan.prompt,
     };
 
     activeCompileRef.current = true;
@@ -271,8 +387,19 @@ Return a complete responsive single-file HTML prototype.`,
       }
 
       if (compileVersionRef.current === startedVersion) {
-        setCode(html);
-        setCompileIssues(validateCompiledHtml(html));
+        const patched = applyComponentPatch(architecture.html, promptPlan.blockId, html);
+        const nextCode = patched || (/<html[\s>]|<!doctype html>/i.test(html) ? html : code);
+        setPatchVersions((prev) => [
+          createPatchVersion(architecture, promptPlan.componentId, code, 'background compile'),
+          ...prev,
+        ].slice(0, 20));
+        setCode(nextCode);
+        setCompileIssues(validateCompiledHtml(nextCode));
+        setPromptCache((prev) => [
+          { key: promptPlan.cacheKey, prompt: promptPlan.prompt, response, createdAt: Date.now() },
+          ...prev,
+        ].slice(0, 30));
+        setAiMetrics((prev) => [createAiCallMetric(promptPlan, startedAt, Boolean(patched || html)), ...prev].slice(0, 50));
         setMessages((prev) => [
           ...prev,
           { role: 'user', content: 'Background compile visual edits into clean responsive code.' },
@@ -292,7 +419,7 @@ Return a complete responsive single-file HTML prototype.`,
         setCompileState('queued');
       }
     }
-  }, [autoCompileEnabled, code, config, hasApiKey, messages, operations]);
+  }, [architecture, autoCompileEnabled, code, config, hasApiKey, messages, operations, promptCache, selectedElement]);
 
   useEffect(() => {
     if (!autoCompileEnabled || operations.length === 0 || activeCompileRef.current) return;
@@ -324,6 +451,17 @@ Return a complete responsive single-file HTML prototype.`,
     anchor.click();
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
+  }
+
+  function handleRollback() {
+    const [latest, ...rest] = patchVersions;
+    if (!latest) return;
+    compileVersionRef.current += 1;
+    setCode(restorePatchVersion(latest));
+    setPatchVersions(rest);
+    setOperations([]);
+    setCompileIssues([]);
+    setCompileState('idle');
   }
 
   const isCodeExportLocked = operations.length > 0 || compileState === 'queued' || compileState === 'compiling' || compileState === 'stale';
@@ -374,8 +512,35 @@ Return a complete responsive single-file HTML prototype.`,
             <div className="selected-card">
               <strong>{`<${selectedElement.tagName}>`}</strong>
               <span>{selectedElement.textContent || selectedElement.selectorPath}</span>
+              <span>{selectedElement.blockId || selectedElement.frameId}</span>
             </div>
           )}
+        </section>
+
+        <section className="panel-section">
+          <div className="section-heading">
+            <span>Tree</span>
+            <h2>Components</h2>
+          </div>
+          <div className="ledger-summary">
+            <div>
+              <strong>{architectureCoverage.registryEntries}</strong>
+              <span>registered components</span>
+            </div>
+            <div className="ledger-pills">
+              <span>css {architectureCoverage.scopedCssBlocks}</span>
+              <span>mapped {architecture.shadowMap.length}</span>
+              <span>{architecture.manifest.modules.length} modules</span>
+            </div>
+          </div>
+          <ol className="ledger-list" aria-label="Component tree">
+            {architecture.registry.slice(1, 6).map((entry) => (
+              <li key={entry.id}>
+                <strong>{entry.tagName}</strong>
+                <span>{entry.blockId}</span>
+              </li>
+            ))}
+          </ol>
         </section>
 
         <section className="panel-section">
@@ -408,6 +573,7 @@ Return a complete responsive single-file HTML prototype.`,
               {compileState === 'queued' && 'Waiting for you to pause.'}
               {compileState === 'compiling' && 'AI is compiling in the background.'}
               {compileState === 'synced' && 'Code has caught up.'}
+              {compileState === 'synced-local' && 'Source AST updated locally.'}
               {compileState === 'stale' && 'New edits arrived during compile.'}
               {compileState === 'failed' && 'Compile needs attention.'}
             </span>
@@ -420,6 +586,15 @@ Return a complete responsive single-file HTML prototype.`,
               Clear
             </button>
           </div>
+          <div className="ledger-actions">
+            <button type="button" onClick={handleRollback} disabled={patchVersions.length === 0}>
+              Roll back last patch
+            </button>
+            <button type="button" onClick={() => setAiMetrics([])} disabled={aiMetrics.length === 0}>
+              Clear metrics
+            </button>
+          </div>
+          <p className="hint">{summarizeMetrics(aiMetrics)}</p>
           {operations.length > 0 && (
             <ol className="ledger-list" aria-label="Recent gesture operations">
               {operations.slice(0, 5).map((operation) => (
@@ -501,7 +676,7 @@ Return a complete responsive single-file HTML prototype.`,
             {isCodeExportLocked ? 'Syncing' : 'Copy'}
           </button>
         </header>
-        <textarea value={code} onChange={(event) => setCode(event.target.value)} spellCheck={false} />
+        <textarea value={code} onChange={(event) => handleCodeChange(event.target.value)} spellCheck={false} />
         <div className="stream-box">
           <strong>Model stream</strong>
           <p>{streamText || 'The latest model response will appear here while streaming.'}</p>

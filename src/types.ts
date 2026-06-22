@@ -33,11 +33,21 @@ export interface LayoutContext {
     gridTemplateColumns: string;
     gap: string;
   } | null;
+  layoutHint?: {
+    intent: string;
+    reason: string;
+    siblingCount: number;
+  } | null;
 }
 
 export interface GestureOperation {
   id: string;
   type: GestureType;
+  targetKey: string;
+  blockId?: string;
+  componentId?: string;
+  componentPath?: string[];
+  version?: number;
   frameId: string;
   tagName: string;
   selectorPath: string;
@@ -52,6 +62,9 @@ export interface GestureOperation {
 
 export interface SelectedElement {
   frameId: string;
+  blockId?: string;
+  componentId?: string;
+  componentPath?: string[];
   tagName: string;
   selectorPath: string;
   textContent: string;

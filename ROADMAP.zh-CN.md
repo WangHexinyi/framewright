@@ -2,30 +2,50 @@
 
 [English](./ROADMAP.md)
 
-## v0.1
+Framewright 是面向 AI 生成前端原型的可视化编辑框架。路线图优先关注编辑原语、源码同步和安全 AI 补丁。
 
-- 单文件 HTML 生成。
-- 沙盒化可视化预览。
-- 检查模式选择元素。
+## v0.1 - 初始开源版本
+
+- 单文件 HTML 生成和预览。
+- 沙盒 iframe inspector。
 - 拖拽、缩放、行内文本编辑。
-- 用于布局编译的手势记录。
-- OpenAI-compatible 模型调用。
+- 稳定 ID：`data-fw-id`、`data-block-id`、`data-frame-id`。
+- 虚拟组件树和 Shadow Mapping。
+- 简单修改通过本地 HTML DOM AST 写回。
+- 复杂修改走 AI 局部补丁 fallback。
+- 补丁快照和回滚。
+- 架构测试和架构审计脚本。
 
-## v0.2
+## v0.2 - 编辑可靠性
 
-- 手势操作的撤销和重做。
-- 覆盖所有 `postMessage` payload 的更完整 schema 校验。
-- 当编译检查发现临时布局代码残留时，自动触发修复提示词。
-- 用 DOM morphing 改善流式预览，减少 iframe 重载。
+- 更强的本地源码编辑 undo / redo。
+- 更好的拖拽和缩放批处理。
+- 更精确的 Scoped CSS 合并。
+- 源码和预览同步诊断。
+- 基于截图的交互测试。
+- 本地 AST 写回被拒绝时提供更清晰的错误提示。
 
-## v0.3
+## v0.3 - Framework Adapter 层
 
-- 多断点手势记录。
-- 编辑前后视觉 diff。
-- React 组件导出。
-- Tailwind 导出。
-- 面向公开部署的后端代理方案。
+- 实验性 TSX/CSS 源码适配器。
+- Tailwind class 重写适配器。
+- 面向生成组件树的 source map 或 manifest 格式。
+- 更好的 React、Vue、静态 HTML 导出兼容层。
+- 可供第三方工具接入的 adapter API。
+
+## v0.4 - AI 补丁安全
+
+- 结构化 AI patch schema。
+- 更强的根标签、稳定 ID、文本保留率和受保护布局属性校验。
+- 面向不安全 AI 修改的负例测试。
+- 可配置的模型路由策略。
+- 持久化语义缓存。
 
 ## 长期方向
 
-Framewright 应该成为 AI 生成 UI 的“视觉意图编译器”：用户通过直接操作表达设计判断，AI 负责把这些判断转换成可维护的前端代码。
+- 多断点可视化编辑。
+- 修改前后视觉 diff。
+- 真正的 package 级微前端拆分。
+- 适合协作的 action ledger。
+- 面向公开部署的后端代理模板。
+- 面向外部设计和代码工具的插件 API。

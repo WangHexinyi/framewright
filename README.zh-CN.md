@@ -2,51 +2,62 @@
 
 [English](./README.md)
 
-Framewright 是一个 AI 界面设计沙盒，面向那些“审美判断强，但不想手写复杂前端代码”的用户。
+Framewright 是一个面向 AI 生成前端原型的开源可视化编辑框架。它让用户先生成单文件 HTML 界面，再直接在沙盒预览中选择、拖拽、缩放和编辑元素，同时保证源码 HTML、预览画布、历史、回滚、复制和导出路径保持一致。
 
-你可以先让 AI 生成一个单文件 HTML 界面，然后在沙盒预览里直接拖拽、缩放、修改文字，最后让模型把这些可视化手势编译成干净、响应式的 CSS 代码。
+> 先动手调整设计，再让代码跟上。
 
-> 先动手调设计，再让代码跟上。
+![Framewright 应用截图](./docs/assets/framewright-app.png)
 
-## 为什么做这个项目
+## 项目定位
 
-现在的 AI 前端工具很擅长生成第一版界面，但不擅长让用户直接表达视觉判断。
+Framewright 重点开源的是编辑技术和框架能力，不是某个演示靶场应用。它的核心是“双层编辑”：
 
-比如你觉得：
+1. AI 生成或更新一个自包含 HTML 原型。
+2. 用户在 iframe 预览中直接操作界面。
+3. Framewright 把视觉操作记录为结构化手势。
+4. 简单修改通过 DOM AST 直接写回权威 HTML 源码。
+5. 复杂结构修改才进入 AI 局部补丁流程。
+6. 更新后的源码再同步回预览，并进入回滚历史。
 
-- 卡片应该更宽一点；
-- Hero 区域应该往上移；
-- 两个模块之间的间距应该更紧；
-- 按钮应该更突出；
-- 图片区域比例不对。
+这样尺寸、位置、文本、样式等确定性修改不需要等待模型，同时复杂布局仍然可以交给 AI。
 
-大多数工具都会要求你回到自然语言里描述这些变化。但很多时候，直接用鼠标拖一下、拉一下，比用语言解释更高效。
+```mermaid
+flowchart LR
+  Prompt["AI 指令"] --> HTML["单文件 HTML"]
+  HTML --> Preview["沙盒 iframe 预览"]
+  Preview --> Gesture["手势账本"]
+  Gesture --> Router["编辑路由"]
+  Router -->|简单修改| AST["本地 DOM AST 写回"]
+  Router -->|复杂修改| AI["AI 局部补丁"]
+  AST --> Source["权威源码"]
+  AI --> Source
+  Source --> Preview
+  Source --> Export["复制 / 导出 / 回滚"]
+```
 
-Framewright 想补上的就是这层交互：
+## 功能
 
-1. AI 生成界面。
-2. 用户直接在预览中修改界面。
-3. Framewright 把这些修改记录成结构化手势。
-4. AI 同时读取 HTML 和手势记录。
-5. AI 把临时的拖拽/缩放结果重写成可维护的响应式代码。
-
-## MVP 功能
-
-- 基于 React + TypeScript + Vite。
+- React + TypeScript + Vite。
 - 使用 `srcdoc` iframe 进行沙盒预览。
-- 检查模式：点击选择页面元素。
-- 拖拽选中元素来移动位置。
-- 使用右下角手柄调整元素尺寸。
-- 双击文本进行行内编辑。
-- 记录 `move`、`resize`、`editText` 三类结构化手势。
-- 手势账本预览、清空和 JSON 导出。
-- 可选后台编译模式：用户停止视觉编辑后自动让 AI 在后台同步代码。
-- 支持 OpenAI-compatible 的流式 `/chat/completions` 接口。
-- 内置 layout compiler prompt，引导模型移除临时 transform 和 inline sizing。
-- 对 AI 编译结果做本地检查，提示残留的临时属性、transform 和像素级 inline 尺寸。
-- 当视觉编辑还没同步成干净代码时，复制/导出类操作会被锁定。
-- 父页面只接收来自当前 iframe window 的 `postMessage`。
-- 对 inspector 消息 payload 做运行时校验。
+- Inspect 模式：悬停、高亮、选中、拖拽、缩放、行内文本编辑。
+- 稳定 ID 映射：`data-fw-id`、`data-block-id`、`data-frame-id`。
+- 虚拟组件树、组件注册表、Shadow Mapping、Scoped CSS 抽取。
+- `SourceEditAdapter` 双层源码编辑接口。
+- 本地 DOM AST 快路径：尺寸、位置、文本、安全样式修改直接写源码。
+- AI surgical fallback：复杂布局或结构修改才调用模型。
+- 补丁快照和回滚账本。
+- Prompt 裁剪、语义缓存元数据、AI 调用指标。
+- 架构审计脚本，检查模块化能力是否齐全。
+- 后台同步不安全时锁定复制/导出。
+- 支持 OpenAI-compatible 流式 `/chat/completions`。
+
+## 环境要求
+
+- Node.js 24 或更新版本
+- npm
+- 如需 AI 生成或 AI fallback，需要 OpenAI-compatible 聊天补全接口
+
+没有模型 Key 时，项目仍可本地运行；但 AI 生成和 AI fallback 功能不可用。
 
 ## 本地运行
 
@@ -55,31 +66,116 @@ npm install
 npm run dev
 ```
 
-构建生产版本：
+打开终端输出的 Vite 地址，通常是：
+
+```text
+http://localhost:5173
+```
+
+生产构建：
 
 ```bash
 npm run build
+npm run preview
 ```
 
-## 部署
+## API 配置
 
-见 [DEPLOYMENT.zh-CN.md](./DEPLOYMENT.zh-CN.md)。这是一个 Vite 静态应用，Vercel 和 Netlify 只需要：
-
-- Build command: `npm run build`
-- Output directory: `dist`
-
-## API 设置
-
-Framewright 目前直接从浏览器调用 OpenAI-compatible `/chat/completions` 接口。
+Framewright 当前从浏览器调用 OpenAI-compatible `/chat/completions` 接口。
 
 默认值：
 
 - Base URL: `https://api.deepseek.com/v1`
 - Model: `deepseek-chat`
 
-这对本地实验很方便。但如果你要公开部署，请把模型调用放到后端代理里，不要把 API Key 暴露在浏览器 JavaScript 中。
+如果公开部署，不要把模型服务商 API Key 暴露在浏览器 JavaScript 中。推荐使用后端代理：
 
-## 安全说明
+1. 浏览器把 prompt 和 gesture 数据发给后端。
+2. 后端附加服务商 API Key。
+3. 后端把模型流式响应转回浏览器。
+
+## 使用方法
+
+1. 输入 prompt 并生成界面。
+2. 打开 Inspect。
+3. 点击元素进行选中。
+4. 拖拽选中元素移动位置。
+5. 使用缩放手柄调整尺寸。
+6. 双击文本进行行内编辑。
+7. 查看手势账本和组件树。
+8. 简单修改会通过本地源码 AST 立即同步。
+9. 只有结构性修改才需要 AI compile。
+10. 同步完成后复制或导出 HTML。
+
+## 编辑模型
+
+Framewright 有两层编辑对象：
+
+- 源码层：源码面板中的完整 HTML 文档，是权威数据。
+- 原型层：iframe 预览，用于视觉操作和实时展示。
+
+源码层是复制、导出、回滚、Prompt 构建和历史记录的唯一事实来源。预览层负责捕获交互，并镜像最新源码状态。
+
+本地源码 AST 快路径覆盖：
+
+- `resize`
+- `move`
+- `editText`
+- 安全样式修改
+
+这些修改通常会写入：
+
+```html
+<style data-fw-scope="fw-source-edits">
+```
+
+AI fallback 覆盖：
+
+- 新增或删除组件
+- 大范围结构重排
+- 无法安全映射到单一目标的修改
+- 模糊自然语言设计指令
+
+## 架构
+
+核心模块位于 `src/architecture`：
+
+- `dom.ts`：组件树、注册表、ID 注入、Scoped CSS、Shadow Mapping
+- `sourceEdit.ts`：HTML 源码适配器和本地 DOM AST 快路径
+- `prompt.ts`：组件级 Prompt 裁剪、路由元数据、缓存键
+- `patch.ts`：补丁快照、组件替换校验、回滚工具
+- `metrics.ts`：AI / 本地路由耗时和 Prompt 指标
+- `manifest.ts`：模块化运行时 manifest，为未来微前端拆分预留边界
+
+架构决策记录位于：
+
+```text
+docs/architecture/
+```
+
+图文架构说明见：[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)。
+
+## 脚本
+
+```bash
+npm run dev                 # 启动本地开发服务器
+npm run build               # 类型检查并构建生产产物
+npm run preview             # 本地预览生产构建
+npm run lint                # 运行 ESLint
+npm run test                # 运行架构测试
+npm run audit:architecture  # 审计模块化架构能力
+```
+
+发布或提交 PR 前建议运行：
+
+```bash
+npm run lint
+npm run build
+npm run test
+npm run audit:architecture
+```
+
+## 安全注意事项
 
 生成的 HTML 会运行在 iframe 中：
 
@@ -87,20 +183,35 @@ Framewright 目前直接从浏览器调用 OpenAI-compatible `/chat/completions`
 sandbox="allow-scripts allow-forms allow-modals allow-popups"
 ```
 
-这里刻意没有加入 `allow-same-origin`，因此生成页面中的脚本不应该能直接读取父页面的 `localStorage`。
+这里刻意没有使用 `allow-same-origin`，因此生成页面不应与父应用共享同源身份，也不应直接读取父页面的 `localStorage`。
 
-父页面也会检查 `postMessage` 的来源，只接收当前 iframe `contentWindow` 发出的消息。
+注意：
 
-不过这仍然是早期原型。在加入文件访问、账号系统、部署能力或插件系统之前，请谨慎处理不可信的生成 HTML。
+- 生成的 HTML 可以在 iframe 中运行 JavaScript。
+- 生成的 HTML 可以从用户浏览器发起网络请求。
+- 浏览器中保存 API Key 只适合本地实验。
+- 公开部署必须使用后端代理调用模型。
+- 在加入文件访问、账号系统、插件系统或部署自动化前，应谨慎处理不可信生成 HTML。
+
+详见 [SECURITY.zh-CN.md](./SECURITY.zh-CN.md)。
+
+## 部署
+
+Framewright 是 Vite 静态应用。详见 [DEPLOYMENT.zh-CN.md](./DEPLOYMENT.zh-CN.md)。
+
+常用配置：
+
+- Build command: `npm run build`
+- Output directory: `dist`
 
 ## 路线图
 
-见 [ROADMAP.zh-CN.md](./ROADMAP.zh-CN.md)。
+详见 [ROADMAP.zh-CN.md](./ROADMAP.zh-CN.md)。
 
-## 安全策略
+## 参与贡献
 
-见 [SECURITY.zh-CN.md](./SECURITY.zh-CN.md)。
+欢迎贡献。提交 issue 或 pull request 前，请先阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 ## 许可证
 
-MIT
+MIT。详见 [LICENSE](./LICENSE)。

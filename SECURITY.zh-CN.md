@@ -2,9 +2,9 @@
 
 [English](./SECURITY.md)
 
-Framewright 是一个早期原型，会在沙盒 iframe 中运行 AI 生成的 HTML。
+Framewright 是早期阶段的可视化编辑框架，会在沙盒 iframe 中运行 AI 生成的 HTML。
 
-## 当前浏览器隔离方式
+## 当前浏览器隔离
 
 预览 iframe 使用：
 
@@ -12,27 +12,29 @@ Framewright 是一个早期原型，会在沙盒 iframe 中运行 AI 生成的 H
 sandbox="allow-scripts allow-forms allow-modals allow-popups"
 ```
 
-这里刻意没有使用 `allow-same-origin`。这样生成代码不会和父应用共享同源权限，也就不应该能直接读取父页面的 `localStorage`。
+这里刻意没有使用 `allow-same-origin`。因此生成代码不应与父应用共享同源身份，也不应直接读取父页面的 `localStorage`。
 
-父应用还会忽略不是来自当前 iframe window 的预览消息。
+父应用也会检查 `postMessage` 来源，只接收当前 iframe `contentWindow` 发出的消息。
 
 ## 已知风险
 
-- 生成代码可以在 iframe 内运行 JavaScript。
-- 生成代码可以从用户浏览器发起网络请求。
-- 生成代码可能尝试伪造 Framewright inspector 消息。
-- API Key 存在浏览器里只适合本地实验，不适合公开托管产品。
+- 生成的 HTML 可以在 iframe 中运行 JavaScript。
+- 生成的 HTML 可以从用户浏览器发起网络请求。
+- 生成的 HTML 可能尝试伪造 inspector 消息。
+- API Key 保存在浏览器中只适合本地实验。
+- 公开部署必须通过后端代理调用模型。
 
 ## 公开部署建议
 
-如果你要公开部署 Framewright：
+如果公开部署 Framewright：
 
-1. 把模型调用移到后端代理。
-2. 不要把模型供应商 API Key 暴露给浏览器 JavaScript。
-3. 对所有 `postMessage` payload 做 schema 校验。
-4. 如果不是必须，考虑禁用任意生成脚本。
-5. 给模型接口增加限流和滥用防护。
+1. 把模型调用放到后端代理。
+2. 不要把服务商 API Key 暴露给浏览器 JavaScript。
+3. 校验所有 `postMessage` payload。
+4. 如果不需要脚本能力，考虑禁用生成 HTML 中的任意脚本。
+5. 给模型接口增加速率限制和滥用防护。
+6. 后续加入文件系统、插件、账号或部署自动化时，需要重新做安全评估。
 
-## 报告问题
+## 报告安全问题
 
-请在 GitHub issue 中提供最小复现，并标注这是安全相关问题。不要在 issue 中包含私有 API Key 或敏感用户数据。
+请通过 GitHub issue 提交最小复现，并标明这是安全相关问题。不要在 issue 中包含 API Key、密钥或敏感生成内容。

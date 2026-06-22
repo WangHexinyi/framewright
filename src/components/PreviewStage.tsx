@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GestureOperation, SelectedElement } from '../types';
 import { isGestureOperation, isSelectedElement } from '../services/validation';
 
@@ -18,11 +18,47 @@ function buildInspectorScript(): string {
   var selectedEl = null;
   var hoveredEl = null;
   var handle = null;
+  var moveable = null;
   var idCounter = 1;
   var activeFrame = 0;
   var pendingApply = null;
+  var remoteApplyInProgress = false;
+  var idiomorphPromise = null;
+  var moveablePromise = null;
+  var gestureStartRect = null;
   var selectColor = 'rgba(191, 91, 58, 0.95)';
   var hoverColor = 'rgba(191, 91, 58, 0.55)';
+  var tempIdPrefix = '__fw_key_';
+
+  function loadIdiomorph() {
+    if (window.Idiomorph && typeof window.Idiomorph.morph === 'function') {
+      return Promise.resolve(window.Idiomorph);
+    }
+    if (idiomorphPromise) return idiomorphPromise;
+    idiomorphPromise = new Promise(function(resolve, reject) {
+      var script = document.createElement('script');
+      script.src = 'https://unpkg.com/idiomorph@0.7.4/dist/idiomorph.min.js';
+      script.async = true;
+      script.onload = function() { resolve(window.Idiomorph); };
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+    return idiomorphPromise;
+  }
+
+  function loadMoveable() {
+    if (window.Moveable) return Promise.resolve(window.Moveable);
+    if (moveablePromise) return moveablePromise;
+    moveablePromise = new Promise(function(resolve, reject) {
+      var script = document.createElement('script');
+      script.src = 'https://daybrush.com/moveable/release/latest/dist/moveable.min.js';
+      script.async = true;
+      script.onload = function() { resolve(window.Moveable); };
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+    return moveablePromise;
+  }
 
   function ensureInteractionStyle() {
     if (document.getElementById('__framewright_interaction_style__')) return;
@@ -60,11 +96,65 @@ function buildInspectorScript(): string {
     return 'fw-' + Date.now().toString(36) + '-' + (idCounter++);
   }
 
+  function slugPart(value) {
+    return String(value || 'node')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'node';
+  }
+
+  function componentPath(el) {
+    var parts = [];
+    var cur = el;
+    while (cur && cur !== document.body && cur !== document.documentElement) {
+      var parent = cur.parentElement;
+      var index = parent ? Array.prototype.indexOf.call(parent.children, cur) + 1 : 1;
+      parts.unshift(cur.getAttribute('data-block-id') || slugPart(cur.id || cur.tagName.toLowerCase() + index));
+      cur = parent;
+    }
+    parts.unshift('body');
+    return parts;
+  }
+
+  function blockIdFor(el) {
+    var existing = el.getAttribute('data-block-id');
+    if (existing) return existing;
+    return 'block_' + componentPath(el).map(slugPart).join('_');
+  }
+
   function ensureIds() {
     Array.prototype.forEach.call(document.body.querySelectorAll('*'), function(el) {
       if (el.id === '__framewright_inspector__') return;
       if (el.classList && el.classList.contains('__fw_resize_handle')) return;
+      if (!el.dataset.blockId) el.dataset.blockId = blockIdFor(el);
       if (!el.dataset.frameId) el.dataset.frameId = uid();
+    });
+  }
+
+  function ensureIdsIn(root) {
+    Array.prototype.forEach.call(root.querySelectorAll('*'), function(el) {
+      if (!el.dataset.blockId) el.dataset.blockId = blockIdFor(el);
+      if (!el.dataset.frameId) el.dataset.frameId = uid();
+    });
+  }
+
+  function keyToTempId(key) {
+    return tempIdPrefix + String(key).replace(/[^a-zA-Z0-9_-]/g, '_');
+  }
+
+  function promoteFrameIds(root) {
+    Array.prototype.forEach.call(root.querySelectorAll('[data-frame-id]'), function(el) {
+      if (el.id) return;
+      el.id = keyToTempId(el.dataset.frameId);
+      el.setAttribute('data-fw-temp-id', 'true');
+    });
+  }
+
+  function stripTempIds(root) {
+    Array.prototype.forEach.call(root.querySelectorAll('[data-fw-temp-id="true"]'), function(el) {
+      if (el.id && el.id.indexOf(tempIdPrefix) === 0) el.removeAttribute('id');
+      el.removeAttribute('data-fw-temp-id');
     });
   }
 
@@ -89,6 +179,41 @@ function buildInspectorScript(): string {
       flexDirection: cs.flexDirection,
       gridTemplateColumns: cs.gridTemplateColumns,
       gap: cs.gap
+    };
+  }
+
+  function layoutHint(el, type, before, after) {
+    if (!el || !el.parentElement || !before || !after) return null;
+    var siblings = Array.prototype.filter.call(el.parentElement.children, function(child) {
+      return child !== el && child.nodeType === Node.ELEMENT_NODE;
+    });
+    var alignedRows = siblings.filter(function(child) {
+      var r = child.getBoundingClientRect();
+      return Math.abs(Math.round(r.y) - after.y) <= 12 || Math.abs(Math.round(r.bottom) - Math.round(after.y + after.height)) <= 12;
+    }).length;
+    var alignedColumns = siblings.filter(function(child) {
+      var r = child.getBoundingClientRect();
+      return Math.abs(Math.round(r.x) - after.x) <= 12 || Math.abs(Math.round(r.right) - Math.round(after.x + after.width)) <= 12;
+    }).length;
+
+    if (alignedRows > 0) {
+      return {
+        intent: 'horizontal row',
+        reason: type + ' ended aligned with sibling vertical bounds; prefer flex row or grid columns over absolute offsets.',
+        siblingCount: siblings.length + 1
+      };
+    }
+    if (alignedColumns > 0) {
+      return {
+        intent: 'vertical stack',
+        reason: type + ' ended aligned with sibling horizontal bounds; prefer flex column, grid rows, gap, margin, or padding.',
+        siblingCount: siblings.length + 1
+      };
+    }
+    return {
+      intent: type === 'resize' ? 'responsive emphasis size' : 'spacing adjustment',
+      reason: 'No strong sibling alignment detected; compile the delta into container spacing, alignment, or proportional sizing.',
+      siblingCount: siblings.length + 1
     };
   }
 
@@ -118,8 +243,53 @@ function buildInspectorScript(): string {
     var interactionStyle = clone.querySelector('#__framewright_interaction_style__');
     if (interactionStyle) interactionStyle.remove();
     Array.prototype.forEach.call(clone.querySelectorAll('.__fw_resize_handle'), function(n) { n.remove(); });
+    Array.prototype.forEach.call(clone.querySelectorAll('.moveable-control-box'), function(n) { n.remove(); });
+    Array.prototype.forEach.call(clone.querySelectorAll('[data-fw-temp-id]'), function(n) {
+      if (n.id && n.id.indexOf(tempIdPrefix) === 0) n.removeAttribute('id');
+      n.removeAttribute('data-fw-temp-id');
+    });
     Array.prototype.forEach.call(clone.querySelectorAll('[contenteditable]'), function(n) { n.removeAttribute('contenteditable'); });
     return '<!DOCTYPE html>\\n' + clone.outerHTML;
+  }
+
+  function applyRemoteHtml(html) {
+    if (!html || typeof html !== 'string') return;
+    var parser = new DOMParser();
+    var doc = parser.parseFromString(html, 'text/html');
+    if (!doc.body) return;
+
+    remoteApplyInProgress = true;
+    deselect(false);
+    clearHover();
+    ensureIds();
+    ensureIdsIn(doc.body);
+    promoteFrameIds(document.body);
+    promoteFrameIds(doc.body);
+
+    loadIdiomorph().then(function(Idiomorph) {
+      if (doc.head) {
+        Idiomorph.morph(document.head, doc.head, {
+          morphStyle: 'innerHTML',
+          ignoreActiveValue: true,
+          restoreFocus: true,
+          head: { style: 'merge' }
+        });
+      }
+      Idiomorph.morph(document.body, doc.body, {
+        morphStyle: 'innerHTML',
+        ignoreActiveValue: true,
+        restoreFocus: true
+      });
+    }).catch(function() {
+      document.head.innerHTML = doc.head ? doc.head.innerHTML : document.head.innerHTML;
+      document.body.innerHTML = doc.body.innerHTML;
+    }).finally(function() {
+      stripTempIds(document);
+      ensureInteractionStyle();
+      ensureIds();
+      remoteApplyInProgress = false;
+      post('code-updated', { html: cleanHtml() });
+    });
   }
 
   function post(type, payload) {
@@ -128,18 +298,24 @@ function buildInspectorScript(): string {
 
   function operation(type, el, before, after, extra) {
     post('operation', Object.assign({
-      operation: {
-        id: uid(),
-        type: type,
-        frameId: el.dataset.frameId,
-        tagName: el.tagName.toLowerCase(),
+        operation: {
+          id: uid(),
+          type: type,
+          targetKey: el.dataset.frameId,
+          blockId: el.dataset.blockId,
+          componentId: el.dataset.blockId,
+          componentPath: componentPath(el),
+          version: Date.now(),
+          frameId: el.dataset.frameId,
+          tagName: el.tagName.toLowerCase(),
         selectorPath: selectorPath(el),
         before: before,
         after: after,
         inlineStyleAfter: el.getAttribute('style') || '',
         context: {
           viewport: { width: window.innerWidth, height: window.innerHeight },
-          parent: parentContext(el)
+          parent: parentContext(el),
+          layoutHint: layoutHint(el, type, before, after)
         },
         createdAt: Date.now()
       }
@@ -155,6 +331,54 @@ function buildInspectorScript(): string {
     hoveredEl = null;
   }
 
+  function isEditorChrome(el) {
+    return !!(el && el.classList && (
+      el.classList.contains('__fw_resize_handle') ||
+      el.classList.contains('moveable-control') ||
+      el.classList.contains('moveable-control-box') ||
+      el.classList.contains('moveable-line') ||
+      el.classList.contains('moveable-area')
+    ));
+  }
+
+  function deepestElementAtPoint(x, y) {
+    var stack = Array.prototype.filter.call(document.elementsFromPoint(x, y), function(el) {
+      return el !== document.body &&
+        el !== document.documentElement &&
+        !isEditorChrome(el) &&
+        el.id !== '__framewright_inspector__' &&
+        !(el.closest && el.closest('.moveable-control-box'));
+    });
+    return stack[0] || null;
+  }
+
+  function selectableFromEvent(e) {
+    var direct = e.target;
+    if (direct && direct.classList && (
+      direct.classList.contains('__fw_resize_handle') ||
+      direct.classList.contains('moveable-control') ||
+      direct.classList.contains('moveable-line')
+    )) return null;
+    var hit = deepestElementAtPoint(e.clientX, e.clientY);
+    if (!hit) return null;
+
+    if (e.altKey) return hit;
+
+    var broadTags = ['DIV', 'SECTION', 'ARTICLE', 'MAIN', 'HEADER', 'FOOTER', 'NAV', 'ASIDE'];
+    if (broadTags.indexOf(hit.tagName) < 0 || hit.children.length === 0) return hit;
+
+    var childStack = Array.prototype.filter.call(document.elementsFromPoint(e.clientX, e.clientY), function(el) {
+      return el !== hit &&
+        hit.contains(el) &&
+        !isEditorChrome(el) &&
+        !(el.closest && el.closest('.moveable-control-box'));
+    });
+    var preferred = childStack.find(function(el) {
+      return ['A', 'BUTTON', 'IMG', 'SVG', 'INPUT', 'TEXTAREA', 'SELECT', 'H1', 'H2', 'H3', 'H4', 'P', 'SPAN', 'SMALL', 'STRONG', 'EM', 'LI'].indexOf(el.tagName) >= 0;
+    });
+    return preferred || childStack[0] || hit;
+  }
+
   function placeHandle() {
     if (!selectedEl || !handle) return;
     var r = selectedEl.getBoundingClientRect();
@@ -167,36 +391,117 @@ function buildInspectorScript(): string {
     handle = null;
   }
 
+  function destroyMoveable() {
+    if (moveable && typeof moveable.destroy === 'function') moveable.destroy();
+    moveable = null;
+  }
+
+  function elementGuidelines(target) {
+    return Array.prototype.filter.call(document.body.querySelectorAll('*'), function(el) {
+      return el !== target &&
+        el.id !== '__framewright_inspector__' &&
+        !(el.classList && (el.classList.contains('__fw_resize_handle') || el.classList.contains('moveable-control-box')));
+    }).slice(0, 120);
+  }
+
+  function initMoveable(target) {
+    loadMoveable().then(function(Moveable) {
+      destroyMoveable();
+      removeHandle();
+      moveable = new Moveable(document.body, {
+        target: target,
+        draggable: true,
+        resizable: true,
+        rotatable: true,
+        snappable: true,
+        snapGap: true,
+        snapElement: true,
+        elementGuidelines: elementGuidelines(target),
+        origin: false,
+        keepRatio: false,
+        throttleDrag: 1,
+        throttleResize: 1,
+        throttleRotate: 1,
+        edge: false
+      });
+
+      moveable
+        .on('dragStart', function() {
+          gestureStartRect = rectOf(target);
+          setInteractionActive(true);
+        })
+        .on('drag', function(e) {
+          e.target.style.transform = e.transform;
+        })
+        .on('dragEnd', function() {
+          setInteractionActive(false);
+          operation('move', target, gestureStartRect, rectOf(target));
+          gestureStartRect = null;
+        })
+        .on('resizeStart', function(e) {
+          gestureStartRect = rectOf(target);
+          setInteractionActive(true);
+          if (e.dragStart) e.dragStart.set(getTranslate(target));
+        })
+        .on('resize', function(e) {
+          e.target.style.width = Math.round(e.width) + 'px';
+          e.target.style.height = Math.round(e.height) + 'px';
+          if (e.drag) e.target.style.transform = e.drag.transform;
+        })
+        .on('resizeEnd', function() {
+          setInteractionActive(false);
+          operation('resize', target, gestureStartRect, rectOf(target));
+          gestureStartRect = null;
+        })
+        .on('rotateStart', function() {
+          gestureStartRect = rectOf(target);
+          setInteractionActive(true);
+        })
+        .on('rotate', function(e) {
+          e.target.style.transform = e.drag.transform;
+        })
+        .on('rotateEnd', function() {
+          setInteractionActive(false);
+          operation('move', target, gestureStartRect, rectOf(target));
+          gestureStartRect = null;
+        });
+    }).catch(function() {
+      if (!handle && selectedEl === target) {
+        placeHandle();
+      }
+    });
+  }
+
+  function getTranslate(el) {
+    var transform = getComputedStyle(el).transform;
+    if (!transform || transform === 'none') return [0, 0];
+    try {
+      var matrix = new DOMMatrix(transform);
+      return [matrix.m41, matrix.m42];
+    } catch (_) {
+      return [0, 0];
+    }
+  }
+
   function select(el) {
     deselect(false);
     selectedEl = el;
+    destroyMoveable();
     selectedEl.style.outline = '2px solid ' + selectColor;
     selectedEl.style.outlineOffset = '2px';
-    handle = document.createElement('div');
-    handle.className = '__fw_resize_handle';
-    Object.assign(handle.style, {
-      position: 'absolute',
-      width: '18px',
-      height: '18px',
-      borderRadius: '6px',
-      background: selectColor,
-      border: '2px solid white',
-      cursor: 'nwse-resize',
-      zIndex: '2147483647',
-      boxShadow: '0 2px 8px rgba(0,0,0,.28)'
-    });
-    document.body.appendChild(handle);
-    placeHandle();
-    bindResize(handle, selectedEl);
     post('selected', {
       element: {
         frameId: el.dataset.frameId,
+        blockId: el.dataset.blockId,
+        componentId: el.dataset.blockId,
+        componentPath: componentPath(el),
         tagName: el.tagName.toLowerCase(),
         selectorPath: selectorPath(el),
         textContent: (el.textContent || '').trim().slice(0, 160),
         outerHTML: el.outerHTML.slice(0, 800)
       }
     });
+    initMoveable(el);
   }
 
   function deselect(notify) {
@@ -206,6 +511,7 @@ function buildInspectorScript(): string {
     }
     selectedEl = null;
     removeHandle();
+    destroyMoveable();
     if (notify !== false) post('selected', { element: null });
   }
 
@@ -298,6 +604,11 @@ function buildInspectorScript(): string {
         operation: Object.assign({}, {
           id: uid(),
           type: 'editText',
+          targetKey: el.dataset.frameId,
+          blockId: el.dataset.blockId,
+          componentId: el.dataset.blockId,
+          componentPath: componentPath(el),
+          version: Date.now(),
           frameId: el.dataset.frameId,
           tagName: el.tagName.toLowerCase(),
           selectorPath: selectorPath(el),
@@ -308,7 +619,8 @@ function buildInspectorScript(): string {
           inlineStyleAfter: el.getAttribute('style') || '',
           context: {
             viewport: { width: window.innerWidth, height: window.innerHeight },
-            parent: parentContext(el)
+            parent: parentContext(el),
+            layoutHint: layoutHint(el, 'editText', before, rectOf(el))
           },
           createdAt: Date.now()
         })
@@ -335,13 +647,15 @@ function buildInspectorScript(): string {
       clearHover();
       if (!inspectMode) deselect();
     }
+    if (e.data.type === 'render-code') {
+      applyRemoteHtml(e.data.html);
+    }
   });
 
   document.addEventListener('mouseover', function(e) {
     if (!inspectMode) return;
-    var target = e.target;
+    var target = selectableFromEvent(e);
     if (!target || target === document.body || target === document.documentElement) return;
-    if (target.classList && target.classList.contains('__fw_resize_handle')) return;
     clearHover();
     hoveredEl = target;
     if (hoveredEl !== selectedEl) {
@@ -356,9 +670,8 @@ function buildInspectorScript(): string {
 
   document.addEventListener('click', function(e) {
     if (!inspectMode) return;
-    var target = e.target;
+    var target = selectableFromEvent(e);
     if (!target || target === document.body || target === document.documentElement) return;
-    if (target.classList && target.classList.contains('__fw_resize_handle')) return;
     e.preventDefault();
     e.stopPropagation();
     ensureIds();
@@ -367,8 +680,9 @@ function buildInspectorScript(): string {
 
   document.addEventListener('mousedown', function(e) {
     if (!inspectMode || !selectedEl) return;
-    var target = e.target;
-    if (target.classList && target.classList.contains('__fw_resize_handle')) return;
+    var target = selectableFromEvent(e);
+    if (!target) return;
+    if (moveable) return;
     if (selectedEl.contains(target)) startMove(e, selectedEl);
   }, true);
 
@@ -383,7 +697,7 @@ function buildInspectorScript(): string {
   }, true);
 
   ensureIds();
-  post('code-updated', { html: cleanHtml() });
+  if (!remoteApplyInProgress) post('code-updated', { html: cleanHtml() });
 })();
 </script>`;
 }
@@ -406,9 +720,9 @@ export function PreviewStage({
 }: PreviewStageProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [device, setDevice] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
-  const [previewCode, setPreviewCode] = useState(code);
+  const [srcDoc, setSrcDoc] = useState(() => injectInspector(code));
+  const iframeReadyRef = useRef(false);
   const inspectorUpdateRef = useRef(false);
-  const enhancedCode = useMemo(() => injectInspector(previewCode), [previewCode]);
 
   useEffect(() => {
     if (inspectorUpdateRef.current) {
@@ -416,8 +730,23 @@ export function PreviewStage({
       return;
     }
     if (deferPreviewSync) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPreviewCode(code);
+
+    if (!code.trim()) {
+      iframeReadyRef.current = false;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSrcDoc('');
+      return;
+    }
+
+    if (!iframeReadyRef.current || !iframeRef.current?.contentWindow) {
+      setSrcDoc(injectInspector(code));
+      return;
+    }
+
+    iframeRef.current.contentWindow.postMessage(
+      { source: 'framewright-parent', type: 'render-code', html: code },
+      '*',
+    );
   }, [code, deferPreviewSync]);
 
   const postInspectMode = useCallback(() => {
@@ -429,7 +758,7 @@ export function PreviewStage({
 
   useEffect(() => {
     postInspectMode();
-  }, [postInspectMode, enhancedCode]);
+  }, [postInspectMode, srcDoc]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -487,10 +816,13 @@ export function PreviewStage({
             <iframe
               ref={iframeRef}
               title="Framewright preview"
-              srcDoc={enhancedCode}
+              srcDoc={srcDoc}
               sandbox="allow-scripts allow-forms allow-modals allow-popups"
               referrerPolicy="no-referrer"
-              onLoad={postInspectMode}
+              onLoad={() => {
+                iframeReadyRef.current = true;
+                postInspectMode();
+              }}
             />
           </div>
         ) : (

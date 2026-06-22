@@ -2,13 +2,25 @@
   "name": "framewright",
   "private": false,
   "version": "0.1.0",
-  "description": "Visually reshape AI-generated interfaces, then compile those gestures into clean responsive code.",
+  "description": "Open-source visual editing framework for AI-generated front-end prototypes.",
   "license": "MIT",
   "type": "module",
+  "keywords": [
+    "ai",
+    "frontend",
+    "visual-editor",
+    "prototype",
+    "html",
+    "ast",
+    "react",
+    "vite"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "node scripts/architecture-tests.mjs",
+    "audit:architecture": "node scripts/architecture-audit.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

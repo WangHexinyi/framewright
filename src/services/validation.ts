@@ -35,6 +35,9 @@ export function isGestureOperation(value: unknown): value is GestureOperation {
     isString(value.id) &&
     gestureTypes.has(value.type as GestureType) &&
     isString(value.frameId) &&
+    (value.targetKey === undefined || isString(value.targetKey)) &&
+    (value.blockId === undefined || isString(value.blockId)) &&
+    (value.componentId === undefined || isString(value.componentId)) &&
     isString(value.tagName) &&
     isString(value.selectorPath) &&
     isRect(value.before) &&
@@ -53,6 +56,8 @@ export function isSelectedElement(value: unknown): value is SelectedElement {
   if (!isRecord(value)) return false;
   return (
     isString(value.frameId) &&
+    (value.blockId === undefined || isString(value.blockId)) &&
+    (value.componentId === undefined || isString(value.componentId)) &&
     isString(value.tagName) &&
     isString(value.selectorPath) &&
     isString(value.textContent) &&

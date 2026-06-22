@@ -2,9 +2,9 @@
 
 [简体中文](./SECURITY.zh-CN.md)
 
-Framewright is an early prototype that runs AI-generated HTML inside a sandboxed iframe.
+Framewright is an early-stage visual editing framework that runs AI-generated HTML inside a sandboxed iframe.
 
-## Current browser isolation
+## Current Browser Isolation
 
 The preview iframe uses:
 
@@ -12,27 +12,29 @@ The preview iframe uses:
 sandbox="allow-scripts allow-forms allow-modals allow-popups"
 ```
 
-It intentionally does not use `allow-same-origin`. This prevents generated code from sharing the parent app origin and directly reading parent `localStorage`.
+It intentionally does not use `allow-same-origin`. Generated code should not share the parent app origin or directly read the parent page's `localStorage`.
 
 The parent app also ignores preview messages unless `event.source` matches the active iframe window.
 
-## Known risks
+## Known Risks
 
-- Generated code can run JavaScript inside the iframe.
-- Generated code can make network requests from the user's browser.
-- Generated code can attempt to spoof Framewright inspector messages from inside the iframe.
-- Browser-stored API keys are acceptable for local experimentation, but not for a public hosted product.
+- Generated HTML can run JavaScript inside the iframe.
+- Generated HTML can make network requests from the user's browser.
+- Generated HTML may attempt to spoof inspector messages.
+- Browser-stored API keys are acceptable only for local experimentation.
+- Public deployments need a backend proxy for model calls.
 
-## Hosted deployment guidance
+## Hosted Deployment Guidance
 
 If you deploy Framewright publicly:
 
 1. Move model calls behind a backend proxy.
 2. Never expose provider API keys to browser JavaScript.
-3. Add schema validation for every `postMessage` payload.
-4. Consider disabling arbitrary generated scripts unless explicitly needed.
+3. Validate every `postMessage` payload.
+4. Consider disabling arbitrary generated scripts unless they are required.
 5. Add rate limits and abuse controls to model endpoints.
+6. Review any future file-system, plugin, account, or deployment automation carefully.
 
-## Reporting issues
+## Reporting Issues
 
-Please open a GitHub issue with a minimal reproduction and mark it as security-related. Do not include private API keys or sensitive user data.
+Please open a GitHub issue with a minimal reproduction and mark it as security-related. Do not include private API keys, secrets, or sensitive generated content.
