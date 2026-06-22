@@ -11,6 +11,9 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
+.env.*
+!.env.example
 AI模块化前端架构.pdf
 
 # Editor directories and files
