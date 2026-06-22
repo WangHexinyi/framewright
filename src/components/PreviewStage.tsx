@@ -26,6 +26,7 @@ function buildInspectorScript(): string {
   var idiomorphPromise = null;
   var moveablePromise = null;
   var gestureStartRect = null;
+  var canvasPanStart = null;
   var selectColor = 'rgba(191, 91, 58, 0.95)';
   var hoverColor = 'rgba(191, 91, 58, 0.55)';
   var tempIdPrefix = '__fw_key_';
@@ -69,6 +70,11 @@ function buildInspectorScript(): string {
       '  transition: none !important;',
       '  animation-play-state: paused !important;',
       '  scroll-behavior: auto !important;',
+      '}',
+      'html.__fw_canvas_panning, html.__fw_canvas_panning * {',
+      '  cursor: grabbing !important;',
+      '  user-select: none !important;',
+      '  -webkit-user-select: none !important;',
       '}',
       'html.__fw_interacting { cursor: grabbing !important; user-select: none !important; }',
       '.__fw_selection_box {',
@@ -785,11 +791,38 @@ function buildInspectorScript(): string {
     el.addEventListener('keydown', keydown);
   }
 
+  function beginCanvasPan(e) {
+    if (inspectMode || e.button !== 0 || isEditorChrome(e.target)) return;
+    if (e.target && ['INPUT', 'TEXTAREA', 'SELECT', 'OPTION'].indexOf(e.target.tagName) >= 0) return;
+    canvasPanStart = { x: e.clientX, y: e.clientY };
+    document.documentElement.classList.add('__fw_canvas_panning');
+    e.preventDefault();
+    e.stopPropagation();
+    post('canvas-pan-start', {});
+  }
+
+  function updateCanvasPan(e) {
+    if (!canvasPanStart) return;
+    e.preventDefault();
+    post('canvas-pan-move', {
+      dx: e.clientX - canvasPanStart.x,
+      dy: e.clientY - canvasPanStart.y
+    });
+  }
+
+  function endCanvasPan(e) {
+    if (!canvasPanStart) return;
+    e.preventDefault();
+    canvasPanStart = null;
+    document.documentElement.classList.remove('__fw_canvas_panning');
+    post('canvas-pan-end', {});
+  }
+
   window.addEventListener('message', function(e) {
     if (!e.data || e.data.source !== 'framewright-parent') return;
     if (e.data.type === 'inspect-mode') {
       inspectMode = !!e.data.enabled;
-      document.body.style.cursor = inspectMode ? 'crosshair' : '';
+      document.body.style.cursor = inspectMode ? 'crosshair' : 'grab';
       clearHover();
       if (!inspectMode) deselect();
     }
@@ -825,6 +858,10 @@ function buildInspectorScript(): string {
   }, true);
 
   document.addEventListener('mousedown', function(e) {
+    if (!inspectMode) {
+      beginCanvasPan(e);
+      return;
+    }
     if (!inspectMode || !selectedEl) return;
     if (isEditorChrome(e.target)) return;
     var target = selectableFromEvent(e);
@@ -832,6 +869,15 @@ function buildInspectorScript(): string {
     if (moveable) return;
     if (selectedEl.contains(target)) startMove(e, selectedEl);
   }, true);
+
+  document.addEventListener('mousemove', updateCanvasPan, true);
+  document.addEventListener('mouseup', endCanvasPan, true);
+  window.addEventListener('blur', function() {
+    if (!canvasPanStart) return;
+    canvasPanStart = null;
+    document.documentElement.classList.remove('__fw_canvas_panning');
+    post('canvas-pan-end', {});
+  });
 
   document.addEventListener('dblclick', function(e) {
     var target = e.target;
@@ -852,6 +898,7 @@ function buildInspectorScript(): string {
   }, true);
 
   ensureIds();
+  document.body.style.cursor = 'grab';
   if (!remoteApplyInProgress) post('code-updated', { html: cleanHtml() });
 })();
 </script>`;
@@ -880,6 +927,7 @@ export function PreviewStage({
   const iframeReadyRef = useRef(false);
   const inspectorUpdateRef = useRef(false);
   const panStartRef = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null);
+  const iframePanStartRef = useRef<{ panX: number; panY: number } | null>(null);
 
   useEffect(() => {
     if (inspectorUpdateRef.current) {
@@ -939,17 +987,33 @@ export function PreviewStage({
           onSelectElement(element);
         }
       }
+
+      if (event.data.type === 'canvas-pan-start') {
+        iframePanStartRef.current = { panX: pan.x, panY: pan.y };
+      }
+
+      if (event.data.type === 'canvas-pan-move' && iframePanStartRef.current) {
+        const dx = typeof event.data.dx === 'number' ? event.data.dx : 0;
+        const dy = typeof event.data.dy === 'number' ? event.data.dy : 0;
+        setPan({
+          x: iframePanStartRef.current.panX + dx,
+          y: iframePanStartRef.current.panY + dy,
+        });
+      }
+
+      if (event.data.type === 'canvas-pan-end') {
+        iframePanStartRef.current = null;
+      }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onCodeChange, onOperation, onSelectElement]);
+  }, [onCodeChange, onOperation, onSelectElement, pan.x, pan.y]);
 
   const width = device === 'desktop' ? '100%' : device === 'tablet' ? '768px' : '390px';
 
   function beginCanvasPan(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
-    if (event.target !== event.currentTarget) return;
     panStartRef.current = {
       pointerId: event.pointerId,
       x: event.clientX,
