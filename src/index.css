@@ -601,6 +601,8 @@ label select:focus,
 }
 
 .ledger-list li {
+  min-width: 0;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -618,6 +620,8 @@ label select:focus,
 }
 
 .ledger-list span {
+  display: block;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -740,22 +744,6 @@ label input {
     linear-gradient(rgba(36, 31, 27, 0.05) 1px, transparent 1px),
     #e7ded3;
   background-size: 28px 28px;
-}
-
-.stage-shell:active {
-  cursor: grabbing;
-}
-
-.canvas-pan-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 5;
-  cursor: grab;
-  touch-action: none;
-}
-
-.canvas-pan-layer:active {
-  cursor: grabbing;
 }
 
 .device-frame {

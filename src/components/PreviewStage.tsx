@@ -1,4 +1,4 @@
-import { type PointerEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GestureOperation, SelectedElement } from '../types';
 import { isGestureOperation, isSelectedElement } from '../services/validation';
 
@@ -26,7 +26,6 @@ function buildInspectorScript(): string {
   var idiomorphPromise = null;
   var moveablePromise = null;
   var gestureStartRect = null;
-  var canvasPanStart = null;
   var selectColor = 'rgba(191, 91, 58, 0.95)';
   var hoverColor = 'rgba(191, 91, 58, 0.55)';
   var tempIdPrefix = '__fw_key_';
@@ -71,10 +70,9 @@ function buildInspectorScript(): string {
       '  animation-play-state: paused !important;',
       '  scroll-behavior: auto !important;',
       '}',
-      'html.__fw_canvas_panning, html.__fw_canvas_panning * {',
-      '  cursor: grabbing !important;',
-      '  user-select: none !important;',
-      '  -webkit-user-select: none !important;',
+      'html.__fw_inspect_mode *, html.__fw_interacting * {',
+      '  transition: none !important;',
+      '  animation-play-state: paused !important;',
       '}',
       'html.__fw_interacting { cursor: grabbing !important; user-select: none !important; }',
       '.__fw_selection_box {',
@@ -791,38 +789,12 @@ function buildInspectorScript(): string {
     el.addEventListener('keydown', keydown);
   }
 
-  function beginCanvasPan(e) {
-    if (inspectMode || e.button !== 0 || isEditorChrome(e.target)) return;
-    if (e.target && ['INPUT', 'TEXTAREA', 'SELECT', 'OPTION'].indexOf(e.target.tagName) >= 0) return;
-    canvasPanStart = { x: e.clientX, y: e.clientY };
-    document.documentElement.classList.add('__fw_canvas_panning');
-    e.preventDefault();
-    e.stopPropagation();
-    post('canvas-pan-start', {});
-  }
-
-  function updateCanvasPan(e) {
-    if (!canvasPanStart) return;
-    e.preventDefault();
-    post('canvas-pan-move', {
-      dx: e.clientX - canvasPanStart.x,
-      dy: e.clientY - canvasPanStart.y
-    });
-  }
-
-  function endCanvasPan(e) {
-    if (!canvasPanStart) return;
-    e.preventDefault();
-    canvasPanStart = null;
-    document.documentElement.classList.remove('__fw_canvas_panning');
-    post('canvas-pan-end', {});
-  }
-
   window.addEventListener('message', function(e) {
     if (!e.data || e.data.source !== 'framewright-parent') return;
     if (e.data.type === 'inspect-mode') {
       inspectMode = !!e.data.enabled;
-      document.body.style.cursor = inspectMode ? 'crosshair' : 'grab';
+      document.documentElement.classList.toggle('__fw_inspect_mode', inspectMode);
+      document.body.style.cursor = inspectMode ? 'crosshair' : '';
       clearHover();
       if (!inspectMode) deselect();
     }
@@ -867,6 +839,7 @@ function buildInspectorScript(): string {
   }, true);
 
   document.addEventListener('dblclick', function(e) {
+    if (!inspectMode) return;
     var target = e.target;
     if (!target || target === document.body || target === document.documentElement) return;
     if (target.classList && target.classList.contains('__fw_resize_handle')) return;
@@ -885,7 +858,6 @@ function buildInspectorScript(): string {
   }, true);
 
   ensureIds();
-  document.body.style.cursor = 'grab';
   if (!remoteApplyInProgress) post('code-updated', { html: cleanHtml() });
 })();
 </script>`;
@@ -909,11 +881,9 @@ export function PreviewStage({
 }: PreviewStageProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [device, setDevice] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
-  const [pan, setPan] = useState({ x: 0, y: 0 });
   const [srcDoc, setSrcDoc] = useState(() => injectInspector(code));
   const iframeReadyRef = useRef(false);
   const inspectorUpdateRef = useRef(false);
-  const panStartRef = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null);
 
   useEffect(() => {
     if (inspectorUpdateRef.current) {
@@ -982,37 +952,6 @@ export function PreviewStage({
 
   const width = device === 'desktop' ? '100%' : device === 'tablet' ? '768px' : '390px';
 
-  function beginCanvasPan(event: PointerEvent<HTMLDivElement>) {
-    if (inspectMode) return;
-    if (event.button !== 0) return;
-    panStartRef.current = {
-      pointerId: event.pointerId,
-      x: event.clientX,
-      y: event.clientY,
-      panX: pan.x,
-      panY: pan.y,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function updateCanvasPan(event: PointerEvent<HTMLDivElement>) {
-    const start = panStartRef.current;
-    if (!start || start.pointerId !== event.pointerId) return;
-    setPan({
-      x: start.panX + event.clientX - start.x,
-      y: start.panY + event.clientY - start.y,
-    });
-  }
-
-  function endCanvasPan(event: PointerEvent<HTMLDivElement>) {
-    const start = panStartRef.current;
-    if (!start || start.pointerId !== event.pointerId) return;
-    panStartRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }
-
   return (
     <section className="preview-stage">
       <div className="stage-toolbar">
@@ -1021,9 +960,6 @@ export function PreviewStage({
           <span>Sandboxed iframe, no same-origin access</span>
         </div>
         <div className="segmented">
-          <button type="button" onClick={() => setPan({ x: 0, y: 0 })}>
-            reset
-          </button>
           {(['desktop', 'tablet', 'mobile'] as const).map((item) => (
             <button
               key={item}
@@ -1038,14 +974,10 @@ export function PreviewStage({
       </div>
       <div
         className="stage-shell"
-        onPointerDown={beginCanvasPan}
-        onPointerMove={updateCanvasPan}
-        onPointerUp={endCanvasPan}
-        onPointerCancel={endCanvasPan}
       >
         {code ? (
           <>
-            <div className="device-frame" style={{ width, transform: `translate3d(${pan.x}px, ${pan.y}px, 0)` }}>
+            <div className="device-frame" style={{ width }}>
               <iframe
                 ref={iframeRef}
                 title="Framewright preview"
@@ -1058,7 +990,6 @@ export function PreviewStage({
                 }}
               />
             </div>
-            {!inspectMode && <div className="canvas-pan-layer" aria-label="Drag canvas" />}
           </>
         ) : (
           <div className="empty-canvas">

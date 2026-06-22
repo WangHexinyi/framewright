@@ -404,6 +404,10 @@ function App() {
   const autoCompileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appShellRef = useRef<HTMLElement | null>(null);
   const codeHighlightRef = useRef<HTMLPreElement | null>(null);
+  const codeTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const codeAutoFollowRef = useRef(true);
+  const pendingStreamCodeRef = useRef('');
+  const streamCodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousCodeRef = useRef(STARTER_HTML);
   const [codeDelta, setCodeDelta] = useState({ added: 0, deleted: 0 });
 
@@ -436,6 +440,36 @@ function App() {
   }, [operations]);
 
   const highlightedCode = useMemo(() => highlightHtmlCode(code), [code]);
+
+  const syncCodeScroll = useCallback(() => {
+    const textarea = codeTextareaRef.current;
+    const highlight = codeHighlightRef.current;
+    if (!textarea || !highlight) return;
+    highlight.scrollTop = textarea.scrollTop;
+    highlight.scrollLeft = textarea.scrollLeft;
+  }, []);
+
+  const scrollCodeToBottom = useCallback(() => {
+    const textarea = codeTextareaRef.current;
+    const highlight = codeHighlightRef.current;
+    if (!textarea) return;
+    textarea.scrollTop = textarea.scrollHeight;
+    if (highlight) {
+      highlight.scrollTop = textarea.scrollTop;
+      highlight.scrollLeft = textarea.scrollLeft;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!codePanelOpen || !codeAutoFollowRef.current) return;
+    requestAnimationFrame(scrollCodeToBottom);
+  }, [code, codePanelOpen, scrollCodeToBottom]);
+
+  useEffect(() => {
+    return () => {
+      if (streamCodeTimerRef.current) window.clearTimeout(streamCodeTimerRef.current);
+    };
+  }, []);
 
   const handleCodeChange = useCallback((nextCode: string) => {
     compileVersionRef.current += 1;
@@ -530,6 +564,11 @@ function App() {
     setIsLoading(true);
     setError(null);
     setStreamText('');
+    codeAutoFollowRef.current = true;
+    if (streamCodeTimerRef.current) {
+      window.clearTimeout(streamCodeTimerRef.current);
+      streamCodeTimerRef.current = null;
+    }
 
     try {
       let streamed = '';
@@ -537,10 +576,22 @@ function App() {
         streamed += chunk;
         setStreamText(streamed);
         const partialHtml = extractHtmlBlock(streamed);
-        if (partialHtml && streamToCode) setCode(partialHtml);
+        if (partialHtml && streamToCode) {
+          pendingStreamCodeRef.current = partialHtml;
+          if (!streamCodeTimerRef.current) {
+            streamCodeTimerRef.current = window.setTimeout(() => {
+              streamCodeTimerRef.current = null;
+              setCode(pendingStreamCodeRef.current);
+            }, 180);
+          }
+        }
       });
 
       const html = extractHtmlBlock(response);
+      if (streamCodeTimerRef.current) {
+        window.clearTimeout(streamCodeTimerRef.current);
+        streamCodeTimerRef.current = null;
+      }
       if (html && streamToCode) setCode(html);
       return response;
     } catch (err) {
@@ -548,7 +599,6 @@ function App() {
       return null;
     } finally {
       setIsLoading(false);
-      setStreamText('');
     }
   }
 
@@ -1007,7 +1057,7 @@ Return a complete responsive single-file HTML prototype.`,
             {architecture.registry.slice(1, 6).map((entry) => (
               <li key={entry.id}>
                 <strong>{entry.tagName}</strong>
-                <span>{entry.blockId}</span>
+                <span title={entry.blockId}>{entry.blockId}</span>
               </li>
             ))}
           </ol>
@@ -1207,12 +1257,14 @@ Return a complete responsive single-file HTML prototype.`,
             dangerouslySetInnerHTML={{ __html: highlightedCode }}
           />
           <textarea
+            ref={codeTextareaRef}
             value={code}
             onChange={(event) => handleCodeChange(event.target.value)}
             onScroll={(event) => {
-              if (!codeHighlightRef.current) return;
-              codeHighlightRef.current.scrollTop = event.currentTarget.scrollTop;
-              codeHighlightRef.current.scrollLeft = event.currentTarget.scrollLeft;
+              const textarea = event.currentTarget;
+              const distanceFromBottom = textarea.scrollHeight - textarea.clientHeight - textarea.scrollTop;
+              codeAutoFollowRef.current = distanceFromBottom < 24;
+              syncCodeScroll();
             }}
             spellCheck={false}
           />
