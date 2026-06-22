@@ -858,10 +858,6 @@ function buildInspectorScript(): string {
   }, true);
 
   document.addEventListener('mousedown', function(e) {
-    if (!inspectMode) {
-      beginCanvasPan(e);
-      return;
-    }
     if (!inspectMode || !selectedEl) return;
     if (isEditorChrome(e.target)) return;
     var target = selectableFromEvent(e);
@@ -869,15 +865,6 @@ function buildInspectorScript(): string {
     if (moveable) return;
     if (selectedEl.contains(target)) startMove(e, selectedEl);
   }, true);
-
-  document.addEventListener('mousemove', updateCanvasPan, true);
-  document.addEventListener('mouseup', endCanvasPan, true);
-  window.addEventListener('blur', function() {
-    if (!canvasPanStart) return;
-    canvasPanStart = null;
-    document.documentElement.classList.remove('__fw_canvas_panning');
-    post('canvas-pan-end', {});
-  });
 
   document.addEventListener('dblclick', function(e) {
     var target = e.target;
@@ -927,7 +914,6 @@ export function PreviewStage({
   const iframeReadyRef = useRef(false);
   const inspectorUpdateRef = useRef(false);
   const panStartRef = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null);
-  const iframePanStartRef = useRef<{ panX: number; panY: number } | null>(null);
 
   useEffect(() => {
     if (inspectorUpdateRef.current) {
@@ -988,31 +974,16 @@ export function PreviewStage({
         }
       }
 
-      if (event.data.type === 'canvas-pan-start') {
-        iframePanStartRef.current = { panX: pan.x, panY: pan.y };
-      }
-
-      if (event.data.type === 'canvas-pan-move' && iframePanStartRef.current) {
-        const dx = typeof event.data.dx === 'number' ? event.data.dx : 0;
-        const dy = typeof event.data.dy === 'number' ? event.data.dy : 0;
-        setPan({
-          x: iframePanStartRef.current.panX + dx,
-          y: iframePanStartRef.current.panY + dy,
-        });
-      }
-
-      if (event.data.type === 'canvas-pan-end') {
-        iframePanStartRef.current = null;
-      }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onCodeChange, onOperation, onSelectElement, pan.x, pan.y]);
+  }, [onCodeChange, onOperation, onSelectElement]);
 
   const width = device === 'desktop' ? '100%' : device === 'tablet' ? '768px' : '390px';
 
   function beginCanvasPan(event: PointerEvent<HTMLDivElement>) {
+    if (inspectMode) return;
     if (event.button !== 0) return;
     panStartRef.current = {
       pointerId: event.pointerId,
@@ -1073,19 +1044,22 @@ export function PreviewStage({
         onPointerCancel={endCanvasPan}
       >
         {code ? (
-          <div className="device-frame" style={{ width, transform: `translate3d(${pan.x}px, ${pan.y}px, 0)` }}>
-            <iframe
-              ref={iframeRef}
-              title="Framewright preview"
-              srcDoc={srcDoc}
-              sandbox="allow-scripts allow-forms allow-modals allow-popups"
-              referrerPolicy="no-referrer"
-              onLoad={() => {
-                iframeReadyRef.current = true;
-                postInspectMode();
-              }}
-            />
-          </div>
+          <>
+            <div className="device-frame" style={{ width, transform: `translate3d(${pan.x}px, ${pan.y}px, 0)` }}>
+              <iframe
+                ref={iframeRef}
+                title="Framewright preview"
+                srcDoc={srcDoc}
+                sandbox="allow-scripts allow-forms allow-modals allow-popups"
+                referrerPolicy="no-referrer"
+                onLoad={() => {
+                  iframeReadyRef.current = true;
+                  postInspectMode();
+                }}
+              />
+            </div>
+            {!inspectMode && <div className="canvas-pan-layer" aria-label="Drag canvas" />}
+          </>
         ) : (
           <div className="empty-canvas">
             <h2>Generate an interface to start.</h2>

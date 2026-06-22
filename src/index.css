@@ -725,6 +725,7 @@ label input {
 }
 
 .stage-shell {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -742,6 +743,18 @@ label input {
 }
 
 .stage-shell:active {
+  cursor: grabbing;
+}
+
+.canvas-pan-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  cursor: grab;
+  touch-action: none;
+}
+
+.canvas-pan-layer:active {
   cursor: grabbing;
 }
 
