@@ -654,6 +654,7 @@ function buildInspectorScript(): string {
 
     hitLayer.addEventListener('mousemove', function(e) {
       if (!inspectMode) return;
+      if (document.documentElement.classList.contains('__fw_interacting')) return;
       e.preventDefault();
       e.stopPropagation();
       var target = selectableFromEvent(e);
@@ -688,6 +689,15 @@ function buildInspectorScript(): string {
       if (!inspectMode || !selectedEl) return;
       e.preventDefault();
       e.stopPropagation();
+      var selectedRect = selectedEl.getBoundingClientRect();
+      var insideSelected = e.clientX >= selectedRect.left &&
+        e.clientX <= selectedRect.right &&
+        e.clientY >= selectedRect.top &&
+        e.clientY <= selectedRect.bottom;
+      if (insideSelected) {
+        startMove(e, selectedEl);
+        return;
+      }
       var target = selectableFromEvent(e);
       if (!target || moveable) return;
       if (selectedEl.contains(target)) startMove(e, selectedEl);
@@ -893,6 +903,7 @@ function buildInspectorScript(): string {
 
   document.addEventListener('mouseover', function(e) {
     if (!inspectMode) return;
+    if (e.target && e.target.classList && e.target.classList.contains('__fw_inspect_hit_layer')) return;
     var target = selectableFromEvent(e);
     if (!target || target === document.body || target === document.documentElement) return;
     clearHover();
@@ -920,6 +931,7 @@ function buildInspectorScript(): string {
   document.addEventListener('mousedown', function(e) {
     if (!inspectMode || !selectedEl) return;
     if (isEditorChrome(e.target)) return;
+    if (e.target && e.target.classList && e.target.classList.contains('__fw_inspect_hit_layer')) return;
     var target = selectableFromEvent(e);
     if (!target) return;
     if (moveable) return;
