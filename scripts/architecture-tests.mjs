@@ -57,7 +57,8 @@ function testAppIntegration() {
   requireText('src/components/PreviewStage.tsx', 'data-block-id');
   requireText('src/components/PreviewStage.tsx', 'componentPath');
   requireText('src/components/PreviewStage.tsx', '.__fw_inspect_hit_layer');
-  requireText('src/components/PreviewStage.tsx', '.__fw_selection_box,.__fw_selection_handle,.__fw_resize_handle,.__fw_inspect_hit_layer');
+  requireText('src/components/PreviewStage.tsx', '.__fw_selection_box,.__fw_selection_handle');
+  requireText('src/components/PreviewStage.tsx', '.__fw_measure_layer');
   requireText('src/architecture/sourceEdit.ts', 'mergeInlineDeclarations');
 }
 

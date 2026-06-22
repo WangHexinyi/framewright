@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GestureOperation, SelectedElement } from '../types';
 import { isGestureOperation, isSelectedElement } from '../services/validation';
-import moveableScriptUrl from 'moveable/dist/moveable.min.js?url';
 
 interface PreviewStageProps {
   code: string;
@@ -12,56 +11,24 @@ interface PreviewStageProps {
   onSelectElement: (element: SelectedElement | null) => void;
 }
 
-function buildInspectorScript(moveableUrl: string): string {
+function buildInspectorScript(): string {
   return `<script id="__framewright_inspector__">
 (function() {
   var inspectMode = false;
   var selectedEl = null;
   var hoveredEl = null;
   var selectionBox = null;
+  var measureLayer = null;
   var hitLayer = null;
-  var moveable = null;
   var idCounter = 1;
   var activeFrame = 0;
   var pendingApply = null;
   var remoteApplyInProgress = false;
-  var idiomorphPromise = null;
-  var moveablePromise = null;
   var gestureStartRect = null;
   var selectColor = 'rgba(191, 91, 58, 0.95)';
   var hoverColor = 'rgba(191, 91, 58, 0.55)';
   var tempIdPrefix = '__fw_key_';
-  var moveableAssetUrl = ${JSON.stringify(moveableUrl)};
-
-  function loadIdiomorph() {
-    if (window.Idiomorph && typeof window.Idiomorph.morph === 'function') {
-      return Promise.resolve(window.Idiomorph);
-    }
-    if (idiomorphPromise) return idiomorphPromise;
-    idiomorphPromise = new Promise(function(resolve, reject) {
-      var script = document.createElement('script');
-      script.src = 'https://unpkg.com/idiomorph@0.7.4/dist/idiomorph.min.js';
-      script.async = true;
-      script.onload = function() { resolve(window.Idiomorph); };
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-    return idiomorphPromise;
-  }
-
-  function loadMoveable() {
-    if (window.Moveable) return Promise.resolve(window.Moveable);
-    if (moveablePromise) return moveablePromise;
-    moveablePromise = new Promise(function(resolve, reject) {
-      var script = document.createElement('script');
-      script.src = moveableAssetUrl;
-      script.async = true;
-      script.onload = function() { resolve(window.Moveable); };
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-    return moveablePromise;
-  }
+  var snapThreshold = 6;
 
   function ensureInteractionStyle() {
     if (document.getElementById('__framewright_interaction_style__')) return;
@@ -105,9 +72,7 @@ function buildInspectorScript(moveableUrl: string): string {
       '}',
       '.__fw_selection_badge {',
       '  all: initial;',
-      '  position: absolute;',
-      '  left: -2px;',
-      '  top: -28px;',
+      '  position: fixed;',
       '  display: block;',
       '  max-width: 180px;',
       '  overflow: hidden;',
@@ -117,6 +82,7 @@ function buildInspectorScript(moveableUrl: string): string {
       '  border-radius: 7px;',
       '  background: var(--fw-select-color, rgba(67, 154, 255, 0.98));',
       '  color: #fff;',
+      '  z-index: 2147483647;',
       '  font: 700 11px/1.2 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;',
       '  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);',
       '  pointer-events: none;',
@@ -140,9 +106,43 @@ function buildInspectorScript(moveableUrl: string): string {
       '  pointer-events: auto;',
       '  touch-action: none;',
       '}',
-      '.moveable-control-box, .moveable-area, .moveable-line, .moveable-control {',
-      '  z-index: 2147483647 !important;',
-      '  pointer-events: auto !important;',
+      '.__fw_measure_layer {',
+      '  all: initial;',
+      '  position: fixed;',
+      '  inset: 0;',
+      '  z-index: 2147483644;',
+      '  pointer-events: none;',
+      '  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;',
+      '}',
+      '.__fw_snap_line {',
+      '  all: initial;',
+      '  position: fixed;',
+      '  display: block;',
+      '  background: rgba(39, 126, 255, 0.72);',
+      '  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.65);',
+      '}',
+      '.__fw_distance_line {',
+      '  all: initial;',
+      '  position: fixed;',
+      '  display: block;',
+      '  background: rgba(245, 132, 53, 0.72);',
+      '  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.72);',
+      '}',
+      '.__fw_distance_line[data-axis="x"] { height: 1px; }',
+      '.__fw_distance_line[data-axis="y"] { width: 1px; }',
+      '.__fw_snap_line[data-axis="x"] { top: 0; bottom: 0; width: 1px; }',
+      '.__fw_snap_line[data-axis="y"] { left: 0; right: 0; height: 1px; }',
+      '.__fw_measure_badge {',
+      '  all: initial;',
+      '  position: fixed;',
+      '  display: block;',
+      '  padding: 4px 6px;',
+      '  border-radius: 6px;',
+      '  background: rgba(31, 26, 22, 0.88);',
+      '  color: #fff;',
+      '  font: 700 11px/1.2 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;',
+      '  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.22);',
+      '  white-space: nowrap;',
       '}'
     ].join('\\n');
     document.head.appendChild(style);
@@ -198,7 +198,15 @@ function buildInspectorScript(moveableUrl: string): string {
   function ensureIds() {
     Array.prototype.forEach.call(document.body.querySelectorAll('*'), function(el) {
       if (el.id === '__framewright_inspector__') return;
-      if (el.classList && (el.classList.contains('__fw_selection_box') || el.classList.contains('__fw_selection_handle'))) return;
+      if (el.classList && (
+        el.classList.contains('__fw_selection_box') ||
+        el.classList.contains('__fw_selection_handle') ||
+        el.classList.contains('__fw_selection_badge') ||
+        el.classList.contains('__fw_measure_layer') ||
+        el.classList.contains('__fw_snap_line') ||
+        el.classList.contains('__fw_distance_line') ||
+        el.classList.contains('__fw_measure_badge')
+      )) return;
       if (!el.dataset.blockId) el.dataset.blockId = blockIdFor(el);
       if (!el.dataset.frameId) el.dataset.frameId = uid();
     });
@@ -340,10 +348,8 @@ function buildInspectorScript(moveableUrl: string): string {
     if (injected) injected.remove();
     var interactionStyle = clone.querySelector('#__framewright_interaction_style__');
     if (interactionStyle) interactionStyle.remove();
-    Array.prototype.forEach.call(clone.querySelectorAll('script[src*="moveable"]'), function(n) { n.remove(); });
     Array.prototype.forEach.call(clone.querySelectorAll('style[data-styled-id][data-styled-count]'), function(n) { n.remove(); });
-    Array.prototype.forEach.call(clone.querySelectorAll('.__fw_selection_box,.__fw_selection_handle,.__fw_resize_handle,.__fw_inspect_hit_layer'), function(n) { n.remove(); });
-    Array.prototype.forEach.call(clone.querySelectorAll('.moveable-control-box'), function(n) { n.remove(); });
+    Array.prototype.forEach.call(clone.querySelectorAll('.__fw_selection_box,.__fw_selection_handle,.__fw_selection_badge,.__fw_resize_handle,.__fw_inspect_hit_layer,.__fw_measure_layer,.__fw_snap_line,.__fw_distance_line,.__fw_measure_badge'), function(n) { n.remove(); });
     Array.prototype.forEach.call(clone.querySelectorAll('[data-fw-temp-id]'), function(n) {
       if (n.id && n.id.indexOf(tempIdPrefix) === 0) n.removeAttribute('id');
       n.removeAttribute('data-fw-temp-id');
@@ -372,31 +378,14 @@ function buildInspectorScript(moveableUrl: string): string {
     promoteFrameIds(document.body);
     promoteFrameIds(doc.body);
 
-    loadIdiomorph().then(function(Idiomorph) {
-      if (doc.head) {
-        Idiomorph.morph(document.head, doc.head, {
-          morphStyle: 'innerHTML',
-          ignoreActiveValue: true,
-          restoreFocus: true,
-          head: { style: 'merge' }
-        });
-      }
-      Idiomorph.morph(document.body, doc.body, {
-        morphStyle: 'innerHTML',
-        ignoreActiveValue: true,
-        restoreFocus: true
-      });
-    }).catch(function() {
-      document.head.innerHTML = doc.head ? doc.head.innerHTML : document.head.innerHTML;
-      document.body.innerHTML = doc.body.innerHTML;
-    }).finally(function() {
-      stripTempIds(document);
-      ensureInteractionStyle();
-      ensureIds();
-      if (inspectMode) ensureInspectHitLayer();
-      remoteApplyInProgress = false;
-      post('code-updated', { html: cleanHtml() });
-    });
+    document.head.innerHTML = doc.head ? doc.head.innerHTML : document.head.innerHTML;
+    document.body.innerHTML = doc.body.innerHTML;
+    stripTempIds(document);
+    ensureInteractionStyle();
+    ensureIds();
+    if (inspectMode) ensureInspectHitLayer();
+    remoteApplyInProgress = false;
+    post('code-updated', { html: cleanHtml() });
   }
 
   function post(type, payload) {
@@ -443,10 +432,11 @@ function buildInspectorScript(moveableUrl: string): string {
       el.classList.contains('__fw_resize_handle') ||
       el.classList.contains('__fw_selection_box') ||
       el.classList.contains('__fw_selection_handle') ||
-      el.classList.contains('moveable-control') ||
-      el.classList.contains('moveable-control-box') ||
-      el.classList.contains('moveable-line') ||
-      el.classList.contains('moveable-area')
+      el.classList.contains('__fw_selection_badge') ||
+      el.classList.contains('__fw_measure_layer') ||
+      el.classList.contains('__fw_snap_line') ||
+      el.classList.contains('__fw_distance_line') ||
+      el.classList.contains('__fw_measure_badge')
     ));
   }
 
@@ -456,8 +446,7 @@ function buildInspectorScript(moveableUrl: string): string {
         el !== document.documentElement &&
         !isEditorChrome(el) &&
         el.id !== '__framewright_inspector__' &&
-        !(el.classList && el.classList.contains('__fw_inspect_hit_layer')) &&
-        !(el.closest && el.closest('.moveable-control-box'));
+        !(el.classList && el.classList.contains('__fw_inspect_hit_layer'));
     });
     return stack[0] || null;
   }
@@ -466,8 +455,8 @@ function buildInspectorScript(moveableUrl: string): string {
     var direct = e.target;
     if (direct && direct.classList && (
       direct.classList.contains('__fw_resize_handle') ||
-      direct.classList.contains('moveable-control') ||
-      direct.classList.contains('moveable-line')
+      direct.classList.contains('__fw_selection_handle') ||
+      direct.classList.contains('__fw_measure_layer')
     )) return null;
     var hit = deepestElementAtPoint(e.clientX, e.clientY);
     if (!hit) return null;
@@ -480,8 +469,7 @@ function buildInspectorScript(moveableUrl: string): string {
     var childStack = Array.prototype.filter.call(document.elementsFromPoint(e.clientX, e.clientY), function(el) {
       return el !== hit &&
         hit.contains(el) &&
-        !isEditorChrome(el) &&
-        !(el.closest && el.closest('.moveable-control-box'));
+        !isEditorChrome(el);
     });
     var preferred = childStack.find(function(el) {
       return ['A', 'BUTTON', 'IMG', 'SVG', 'INPUT', 'TEXTAREA', 'SELECT', 'H1', 'H2', 'H3', 'H4', 'P', 'SPAN', 'SMALL', 'STRONG', 'EM', 'LI'].indexOf(el.tagName) >= 0;
@@ -498,6 +486,11 @@ function buildInspectorScript(moveableUrl: string): string {
     selectionBox.style.height = Math.max(0, r.height) + 'px';
     selectionBox.style.borderRadius = getComputedStyle(selectedEl).borderRadius || '0px';
     selectionBox.style.setProperty('--fw-select-color', selectionColorFor(elementKind(selectedEl)));
+    var badge = selectionBox.querySelector('.__fw_selection_badge');
+    if (badge) {
+      badge.style.left = Math.round(Math.max(8, r.left)) + 'px';
+      badge.style.top = Math.round(r.top > 34 ? r.top - 32 : r.bottom + 10) + 'px';
+    }
   }
 
   function removeSelectionBox() {
@@ -505,90 +498,190 @@ function buildInspectorScript(moveableUrl: string): string {
     selectionBox = null;
   }
 
-  function destroyMoveable() {
-    if (moveable && typeof moveable.destroy === 'function') moveable.destroy();
-    moveable = null;
+  function removeMeasureLayer() {
+    if (measureLayer && measureLayer.parentNode) measureLayer.parentNode.removeChild(measureLayer);
+    measureLayer = null;
   }
 
-  function elementGuidelines(target) {
-    return Array.prototype.filter.call(document.body.querySelectorAll('*'), function(el) {
-      return el !== target &&
-        el.id !== '__framewright_inspector__' &&
-        !(el.classList && el.classList.contains('__fw_inspect_hit_layer')) &&
-        !(el.classList && (el.classList.contains('__fw_resize_handle') || el.classList.contains('moveable-control-box')));
-    }).slice(0, 120);
+  function ensureMeasureLayer() {
+    ensureInteractionStyle();
+    if (!measureLayer || !measureLayer.parentNode) {
+      measureLayer = document.createElement('div');
+      measureLayer.className = '__fw_measure_layer';
+      measureLayer.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(measureLayer);
+    }
+    measureLayer.innerHTML = '';
+    return measureLayer;
   }
 
-  function initMoveable(target) {
-    loadMoveable().then(function(Moveable) {
-      destroyMoveable();
-      removeSelectionBox();
-      moveable = new Moveable(document.body, {
-        target: target,
-        draggable: true,
-        resizable: true,
-        rotatable: true,
-        snappable: true,
-        snapGap: true,
-        snapElement: true,
-        elementGuidelines: elementGuidelines(target),
-        dragArea: true,
-        origin: false,
-        keepRatio: false,
-        throttleDrag: 1,
-        throttleResize: 1,
-        throttleRotate: 1,
-        edge: false
-      });
+  function finiteNumber(value) {
+    return typeof value === 'number' && isFinite(value);
+  }
 
-      moveable
-        .on('dragStart', function() {
-          gestureStartRect = rectOf(target);
-          setInteractionActive(true);
-        })
-        .on('drag', function(e) {
-          e.target.style.transform = e.transform;
-        })
-        .on('dragEnd', function() {
-          setInteractionActive(false);
-          operation('move', target, gestureStartRect, rectOf(target));
-          gestureStartRect = null;
-        })
-        .on('resizeStart', function(e) {
-          gestureStartRect = rectOf(target);
-          setInteractionActive(true);
-          if (e.dragStart) e.dragStart.set(getTranslate(target));
-        })
-        .on('resize', function(e) {
-          e.target.style.width = Math.round(e.width) + 'px';
-          e.target.style.height = Math.round(e.height) + 'px';
-          if (e.drag) e.target.style.transform = e.drag.transform;
-        })
-        .on('resizeEnd', function() {
-          setInteractionActive(false);
-          operation('resize', target, gestureStartRect, rectOf(target));
-          gestureStartRect = null;
-        })
-        .on('rotateStart', function() {
-          gestureStartRect = rectOf(target);
-          setInteractionActive(true);
-        })
-        .on('rotate', function(e) {
-          e.target.style.transform = e.drag.transform;
-        })
-        .on('rotateEnd', function() {
-          setInteractionActive(false);
-          operation('move', target, gestureStartRect, rectOf(target));
-          gestureStartRect = null;
-        });
-    }).catch(function() {
-      if (selectedEl === target) initSelectionBox(target);
+  function roundedRect(rect) {
+    return {
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.max(1, Math.round(rect.width)),
+      height: Math.max(1, Math.round(rect.height))
+    };
+  }
+
+  function buildSnapGuides(target) {
+    var guides = { x: [], y: [] };
+    var seen = {};
+
+    function add(axis, value) {
+      if (!finiteNumber(value)) return;
+      var rounded = Math.round(value);
+      var key = axis + ':' + rounded;
+      if (seen[key]) return;
+      seen[key] = true;
+      guides[axis].push(rounded);
+    }
+
+    add('x', 0);
+    add('x', window.innerWidth / 2);
+    add('x', window.innerWidth);
+    add('y', 0);
+    add('y', window.innerHeight / 2);
+    add('y', window.innerHeight);
+
+    Array.prototype.forEach.call(document.body.querySelectorAll('*'), function(el) {
+      if (el === target || target.contains(el) || isEditorChrome(el)) return;
+      if (el.id === '__framewright_inspector__') return;
+      if (el.classList && el.classList.contains('__fw_inspect_hit_layer')) return;
+      var r = el.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2) return;
+      add('x', r.left);
+      add('x', r.left + r.width / 2);
+      add('x', r.right);
+      add('y', r.top);
+      add('y', r.top + r.height / 2);
+      add('y', r.bottom);
     });
+
+    return guides;
+  }
+
+  function bestSnap(candidates, guides) {
+    var best = null;
+    candidates.forEach(function(candidate) {
+      guides.forEach(function(guide) {
+        var distance = Math.abs(candidate.value - guide);
+        if (distance <= snapThreshold && (!best || distance < best.distance)) {
+          best = {
+            value: guide + candidate.offset,
+            guide: guide,
+            distance: distance
+          };
+        }
+      });
+    });
+    return best;
+  }
+
+  function snapRect(rect, guides, axes) {
+    var next = roundedRect(rect);
+    var snaps = { x: null, y: null };
+
+    if (axes.x) {
+      var xSnap = bestSnap([
+        { value: next.x, offset: 0 },
+        { value: next.x + next.width / 2, offset: -next.width / 2 },
+        { value: next.x + next.width, offset: -next.width }
+      ], guides.x);
+      if (xSnap) {
+        next.x = Math.round(xSnap.value);
+        snaps.x = xSnap.guide;
+      }
+    }
+
+    if (axes.y) {
+      var ySnap = bestSnap([
+        { value: next.y, offset: 0 },
+        { value: next.y + next.height / 2, offset: -next.height / 2 },
+        { value: next.y + next.height, offset: -next.height }
+      ], guides.y);
+      if (ySnap) {
+        next.y = Math.round(ySnap.value);
+        snaps.y = ySnap.guide;
+      }
+    }
+
+    return { rect: next, snaps: snaps };
+  }
+
+  function updateMeasure(rect, snaps) {
+    var layer = ensureMeasureLayer();
+
+    function addLine(axis, start, end, cross) {
+      if (end <= start) return;
+      var line = document.createElement('div');
+      line.className = '__fw_distance_line';
+      line.dataset.axis = axis;
+      if (axis === 'x') {
+        line.style.left = Math.round(start) + 'px';
+        line.style.top = Math.round(cross) + 'px';
+        line.style.width = Math.round(end - start) + 'px';
+      } else {
+        line.style.left = Math.round(cross) + 'px';
+        line.style.top = Math.round(start) + 'px';
+        line.style.height = Math.round(end - start) + 'px';
+      }
+      layer.appendChild(line);
+    }
+
+    function addBadge(text, x, y) {
+      var badge = document.createElement('div');
+      badge.className = '__fw_measure_badge';
+      badge.textContent = text;
+      badge.style.left = Math.max(8, Math.min(window.innerWidth - 170, Math.round(x))) + 'px';
+      badge.style.top = Math.max(8, Math.min(window.innerHeight - 24, Math.round(y))) + 'px';
+      layer.appendChild(badge);
+    }
+
+    if (snaps && snaps.x !== null) {
+      var xLine = document.createElement('div');
+      xLine.className = '__fw_snap_line';
+      xLine.dataset.axis = 'x';
+      xLine.style.left = Math.round(snaps.x) + 'px';
+      layer.appendChild(xLine);
+    }
+    if (snaps && snaps.y !== null) {
+      var yLine = document.createElement('div');
+      yLine.className = '__fw_snap_line';
+      yLine.dataset.axis = 'y';
+      yLine.style.top = Math.round(snaps.y) + 'px';
+      layer.appendChild(yLine);
+    }
+
+    var left = Math.round(rect.x);
+    var top = Math.round(rect.y);
+    var right = Math.round(rect.x + rect.width);
+    var bottom = Math.round(rect.y + rect.height);
+    var centerX = Math.round(rect.x + rect.width / 2);
+    var centerY = Math.round(rect.y + rect.height / 2);
+    var viewportRight = Math.round(window.innerWidth - right);
+    var viewportBottom = Math.round(window.innerHeight - bottom);
+
+    addLine('x', 0, left, centerY);
+    addLine('x', right, window.innerWidth, centerY);
+    addLine('y', 0, top, centerX);
+    addLine('y', bottom, window.innerHeight, centerX);
+
+    addBadge('L ' + left + 'px', Math.max(10, left / 2 - 28), centerY - 24);
+    addBadge('R ' + viewportRight + 'px', right + Math.max(10, viewportRight / 2 - 28), centerY - 24);
+    addBadge('T ' + top + 'px', centerX + 10, Math.max(8, top / 2 - 12));
+    addBadge('B ' + viewportBottom + 'px', centerX + 10, bottom + Math.max(8, viewportBottom / 2 - 12));
+    addBadge(Math.round(rect.width) + ' x ' + Math.round(rect.height), rect.x + 8, rect.y - 34);
+    addBadge('C ' + centerX + ', ' + centerY, centerX + 10, centerY + 10);
   }
 
   function initSelectionBox(target) {
-    destroyMoveable();
     removeSelectionBox();
+    removeMeasureLayer();
     selectionBox = document.createElement('div');
     selectionBox.className = '__fw_selection_box';
     selectionBox.setAttribute('aria-hidden', 'true');
@@ -605,7 +698,7 @@ function buildInspectorScript(moveableUrl: string): string {
     });
     var badge = document.createElement('div');
     badge.className = '__fw_selection_badge';
-    badge.textContent = elementKind(target) + ' · <' + target.tagName.toLowerCase() + '>';
+    badge.textContent = elementKind(target) + ' <' + target.tagName.toLowerCase() + '>';
     selectionBox.appendChild(badge);
     document.body.appendChild(selectionBox);
     placeSelectionBox();
@@ -625,7 +718,6 @@ function buildInspectorScript(moveableUrl: string): string {
   function select(el) {
     deselect(false);
     selectedEl = el;
-    destroyMoveable();
     selectedEl.style.outline = '2px solid ' + selectionColorFor(elementKind(el));
     selectedEl.style.outlineOffset = '2px';
     post('selected', {
@@ -641,7 +733,7 @@ function buildInspectorScript(moveableUrl: string): string {
         outerHTML: el.outerHTML.slice(0, 800)
       }
     });
-    initMoveable(el);
+    initSelectionBox(el);
   }
 
   function deselect(notify) {
@@ -651,7 +743,7 @@ function buildInspectorScript(moveableUrl: string): string {
     }
     selectedEl = null;
     removeSelectionBox();
-    destroyMoveable();
+    removeMeasureLayer();
     if (notify !== false) post('selected', { element: null });
   }
 
@@ -705,12 +797,11 @@ function buildInspectorScript(moveableUrl: string): string {
         e.clientY >= selectedRect.top &&
         e.clientY <= selectedRect.bottom;
       if (insideSelected) {
-        if (moveable) return;
         startMove(e, selectedEl);
         return;
       }
       var target = selectableFromEvent(e);
-      if (!target || moveable) return;
+      if (!target) return;
       if (selectedEl.contains(target)) startMove(e, selectedEl);
     });
 
@@ -738,58 +829,91 @@ function buildInspectorScript(moveableUrl: string): string {
       e.stopPropagation();
       setInteractionActive(true);
       var before = rectOf(el);
+      var guides = buildSnapGuides(el);
       var startX = e.clientX;
       var startY = e.clientY;
       var startW = before.width;
       var startH = before.height;
       var minW = 32;
       var minH = 24;
-      var baseX = 0;
-      var baseY = 0;
-      var transform = getComputedStyle(el).transform;
-      if (transform && transform !== 'none') {
-        try {
-          var m = new DOMMatrix(transform);
-          baseX = m.m41;
-          baseY = m.m42;
-        } catch (_) {}
-      }
+      var baseTranslate = getTranslate(el);
+      var baseX = baseTranslate[0];
+      var baseY = baseTranslate[1];
 
       function move(ev) {
+        ev.preventDefault();
         var dx = ev.clientX - startX;
         var dy = ev.clientY - startY;
-        var nextWidth = startW;
-        var nextHeight = startH;
-        var nextX = baseX;
-        var nextY = baseY;
+        var nextRect = {
+          x: before.x,
+          y: before.y,
+          width: startW,
+          height: startH
+        };
 
-        if (dir.indexOf('e') >= 0) nextWidth = startW + dx;
-        if (dir.indexOf('s') >= 0) nextHeight = startH + dy;
+        if (dir.indexOf('e') >= 0) nextRect.width = startW + dx;
+        if (dir.indexOf('s') >= 0) nextRect.height = startH + dy;
         if (dir.indexOf('w') >= 0) {
-          nextWidth = startW - dx;
-          nextX = baseX + dx;
+          nextRect.width = startW - dx;
+          nextRect.x = before.x + dx;
         }
         if (dir.indexOf('n') >= 0) {
-          nextHeight = startH - dy;
-          nextY = baseY + dy;
+          nextRect.height = startH - dy;
+          nextRect.y = before.y + dy;
         }
 
-        if (nextWidth < minW) {
-          if (dir.indexOf('w') >= 0) nextX += nextWidth - minW;
-          nextWidth = minW;
+        if (nextRect.width < minW) {
+          if (dir.indexOf('w') >= 0) nextRect.x += nextRect.width - minW;
+          nextRect.width = minW;
         }
-        if (nextHeight < minH) {
-          if (dir.indexOf('n') >= 0) nextY += nextHeight - minH;
-          nextHeight = minH;
+        if (nextRect.height < minH) {
+          if (dir.indexOf('n') >= 0) nextRect.y += nextRect.height - minH;
+          nextRect.height = minH;
         }
+
+        var snaps = { x: null, y: null };
+        if (dir.indexOf('w') >= 0) {
+          var leftSnap = bestSnap([{ value: nextRect.x, offset: 0 }], guides.x);
+          if (leftSnap) {
+            nextRect.x = leftSnap.guide;
+            nextRect.width = before.x + before.width - nextRect.x;
+            snaps.x = leftSnap.guide;
+          }
+        } else if (dir.indexOf('e') >= 0) {
+          var rightSnap = bestSnap([{ value: nextRect.x + nextRect.width, offset: 0 }], guides.x);
+          if (rightSnap) {
+            nextRect.width = rightSnap.guide - nextRect.x;
+            snaps.x = rightSnap.guide;
+          }
+        }
+        if (dir.indexOf('n') >= 0) {
+          var topSnap = bestSnap([{ value: nextRect.y, offset: 0 }], guides.y);
+          if (topSnap) {
+            nextRect.y = topSnap.guide;
+            nextRect.height = before.y + before.height - nextRect.y;
+            snaps.y = topSnap.guide;
+          }
+        } else if (dir.indexOf('s') >= 0) {
+          var bottomSnap = bestSnap([{ value: nextRect.y + nextRect.height, offset: 0 }], guides.y);
+          if (bottomSnap) {
+            nextRect.height = bottomSnap.guide - nextRect.y;
+            snaps.y = bottomSnap.guide;
+          }
+        }
+        nextRect = roundedRect(nextRect);
+        if (nextRect.width < minW) nextRect.width = minW;
+        if (nextRect.height < minH) nextRect.height = minH;
+        var nextX = baseX + (nextRect.x - before.x);
+        var nextY = baseY + (nextRect.y - before.y);
 
         scheduleApply(function() {
-          el.style.width = Math.round(nextWidth) + 'px';
-          el.style.height = Math.round(nextHeight) + 'px';
+          el.style.width = nextRect.width + 'px';
+          el.style.height = nextRect.height + 'px';
           if (dir.indexOf('w') >= 0 || dir.indexOf('n') >= 0) {
             el.style.transform = 'translate3d(' + Math.round(nextX) + 'px, ' + Math.round(nextY) + 'px, 0)';
           }
           placeSelectionBox();
+          updateMeasure(nextRect, snaps);
         });
       }
 
@@ -797,6 +921,7 @@ function buildInspectorScript(moveableUrl: string): string {
         setInteractionActive(false);
         document.removeEventListener('mousemove', move);
         document.removeEventListener('mouseup', up);
+        removeMeasureLayer();
         operation('resize', el, before, rectOf(el));
       }
 
@@ -809,28 +934,30 @@ function buildInspectorScript(moveableUrl: string): string {
     e.preventDefault();
     setInteractionActive(true);
     var before = rectOf(el);
+    var guides = buildSnapGuides(el);
     var startX = e.clientX;
     var startY = e.clientY;
-    var transform = getComputedStyle(el).transform;
-    var baseX = 0;
-    var baseY = 0;
-    if (transform && transform !== 'none') {
-      try {
-        var m = new DOMMatrix(transform);
-        baseX = m.m41;
-        baseY = m.m42;
-      } catch (_) {}
-    }
+    var baseTranslate = getTranslate(el);
+    var baseX = baseTranslate[0];
+    var baseY = baseTranslate[1];
 
     function move(ev) {
+      ev.preventDefault();
       var dx = ev.clientX - startX;
       var dy = ev.clientY - startY;
-      var nextX = Math.round(baseX + dx);
-      var nextY = Math.round(baseY + dy);
+      var snapped = snapRect({
+        x: before.x + dx,
+        y: before.y + dy,
+        width: before.width,
+        height: before.height
+      }, guides, { x: true, y: true });
+      var nextX = Math.round(baseX + (snapped.rect.x - before.x));
+      var nextY = Math.round(baseY + (snapped.rect.y - before.y));
       scheduleApply(function() {
         el.style.transform = 'translate3d(' + nextX + 'px, ' + nextY + 'px, 0)';
         el.style.willChange = 'transform';
         placeSelectionBox();
+        updateMeasure(snapped.rect, snapped.snaps);
       });
     }
 
@@ -839,6 +966,7 @@ function buildInspectorScript(moveableUrl: string): string {
       document.removeEventListener('mousemove', move);
       document.removeEventListener('mouseup', up);
       el.style.willChange = '';
+      removeMeasureLayer();
       operation('move', el, before, rectOf(el));
     }
 
@@ -912,54 +1040,6 @@ function buildInspectorScript(moveableUrl: string): string {
     }
   });
 
-  document.addEventListener('mouseover', function(e) {
-    if (!inspectMode) return;
-    if (e.target && e.target.classList && e.target.classList.contains('__fw_inspect_hit_layer')) return;
-    var target = selectableFromEvent(e);
-    if (!target || target === document.body || target === document.documentElement) return;
-    clearHover();
-    hoveredEl = target;
-    if (hoveredEl !== selectedEl) {
-      hoveredEl.style.outline = '2px dashed ' + hoverColor;
-      hoveredEl.style.outlineOffset = '2px';
-    }
-  }, true);
-
-  document.addEventListener('mouseout', function() {
-    if (inspectMode) clearHover();
-  }, true);
-
-  document.addEventListener('click', function(e) {
-    if (!inspectMode) return;
-    var target = selectableFromEvent(e);
-    if (!target || target === document.body || target === document.documentElement) return;
-    e.preventDefault();
-    e.stopPropagation();
-    ensureIds();
-    select(target);
-  }, true);
-
-  document.addEventListener('mousedown', function(e) {
-    if (!inspectMode || !selectedEl) return;
-    if (isEditorChrome(e.target)) return;
-    if (e.target && e.target.classList && e.target.classList.contains('__fw_inspect_hit_layer')) return;
-    var target = selectableFromEvent(e);
-    if (!target) return;
-    if (moveable) return;
-    if (selectedEl.contains(target)) startMove(e, selectedEl);
-  }, true);
-
-  document.addEventListener('dblclick', function(e) {
-    if (!inspectMode) return;
-    var target = e.target;
-    if (!target || target === document.body || target === document.documentElement) return;
-    if (target.classList && target.classList.contains('__fw_resize_handle')) return;
-    e.preventDefault();
-    e.stopPropagation();
-    ensureIds();
-    beginTextEdit(e, target);
-  }, true);
-
   window.addEventListener('resize', function() {
     if (selectedEl) placeSelectionBox();
   });
@@ -974,8 +1054,8 @@ function buildInspectorScript(moveableUrl: string): string {
 </script>`;
 }
 
-function injectInspector(html: string, moveableUrl: string): string {
-  const script = buildInspectorScript(moveableUrl);
+function injectInspector(html: string): string {
+  const script = buildInspectorScript();
   if (!html.trim()) return '';
   if (html.includes('__framewright_inspector__')) return html;
   if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${script}</body>`);
@@ -992,12 +1072,9 @@ export function PreviewStage({
 }: PreviewStageProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [device, setDevice] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
-  const absoluteMoveableUrl = useMemo(
-    () => (typeof window === 'undefined' ? moveableScriptUrl : new URL(moveableScriptUrl, window.location.href).href),
-    [],
-  );
-  const [srcDoc, setSrcDoc] = useState(() => injectInspector(code, absoluteMoveableUrl));
+  const [srcDoc, setSrcDoc] = useState(() => injectInspector(code));
   const iframeReadyRef = useRef(false);
+  const lastPreviewHtmlRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (deferPreviewSync) return;
@@ -1010,15 +1087,17 @@ export function PreviewStage({
     }
 
     if (!iframeReadyRef.current || !iframeRef.current?.contentWindow) {
-      setSrcDoc(injectInspector(code, absoluteMoveableUrl));
+      setSrcDoc(injectInspector(code));
       return;
     }
+
+    if (lastPreviewHtmlRef.current === code) return;
 
     iframeRef.current.contentWindow.postMessage(
       { source: 'framewright-parent', type: 'render-code', html: code },
       '*',
     );
-  }, [absoluteMoveableUrl, code, deferPreviewSync]);
+  }, [code, deferPreviewSync]);
 
   const postInspectMode = useCallback(() => {
     iframeRef.current?.contentWindow?.postMessage(
@@ -1037,6 +1116,7 @@ export function PreviewStage({
       if (!event.data || event.data.source !== 'framewright-inspector') return;
 
       if (event.data.type === 'code-updated' && typeof event.data.html === 'string') {
+        lastPreviewHtmlRef.current = event.data.html;
         onCodeChange(event.data.html);
       }
 

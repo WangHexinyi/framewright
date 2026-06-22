@@ -106,6 +106,30 @@ export function planLayoutCompilePrompt(
   });
 }
 
+function contentFromPayload(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return '';
+  const record = payload as Record<string, unknown>;
+  const choices = Array.isArray(record.choices) ? record.choices : [];
+  const firstChoice = choices[0] as Record<string, unknown> | undefined;
+  const delta = firstChoice?.delta as Record<string, unknown> | undefined;
+  const message = firstChoice?.message as Record<string, unknown> | undefined;
+  const content = delta?.content ?? delta?.reasoning_content ?? message?.content ?? record.output_text;
+
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (!part || typeof part !== 'object') return '';
+        const item = part as Record<string, unknown>;
+        return typeof item.text === 'string' ? item.text : '';
+      })
+      .join('');
+  }
+
+  return '';
+}
+
 export async function streamChatCompletion(
   config: ApiConfig,
   messages: Message[],
@@ -144,31 +168,55 @@ export async function streamChatCompletion(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let rawText = '';
   let full = '';
+  let sawSse = false;
+
+  function appendChunk(chunk: string) {
+    if (!chunk) return;
+    full += chunk;
+    onChunk(chunk);
+  }
+
+  function processLine(line: string) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed === 'data: [DONE]') return;
+    if (!trimmed.startsWith('data:')) return;
+
+    sawSse = true;
+    try {
+      const payload = JSON.parse(trimmed.slice(5).trim());
+      appendChunk(contentFromPayload(payload));
+    } catch {
+      // Ignore malformed partial server-sent events.
+    }
+  }
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
+    const decoded = decoder.decode(value, { stream: true });
+    rawText += decoded;
+    buffer += decoded;
     const lines = buffer.split('\n');
     buffer = lines.pop() ?? '';
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed === 'data: [DONE]') continue;
-      if (!trimmed.startsWith('data: ')) continue;
+    lines.forEach(processLine);
+  }
 
-      try {
-        const payload = JSON.parse(trimmed.slice(6));
-        const chunk = payload.choices?.[0]?.delta?.content ?? '';
-        if (chunk) {
-          full += chunk;
-          onChunk(chunk);
-        }
-      } catch {
-        // Ignore malformed partial server-sent events.
-      }
+  const tail = decoder.decode();
+  if (tail) {
+    rawText += tail;
+    buffer += tail;
+  }
+  if (buffer.trim()) processLine(buffer);
+
+  if (!sawSse && !full && rawText.trim()) {
+    try {
+      appendChunk(contentFromPayload(JSON.parse(rawText)));
+    } catch {
+      appendChunk(rawText);
     }
   }
 

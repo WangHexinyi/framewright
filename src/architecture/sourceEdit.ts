@@ -209,19 +209,24 @@ export function applyGestureBatchToHtmlSource(
   architecture: ComponentArchitecture,
 ): SourceEditResult {
   const startedAt = performance.now();
-  const route = classifyGestureBatch(operations, architecture);
-  if (route !== 'local-source-ast') {
+  const classifiedRoute = classifyGestureBatch(operations, architecture);
+  const doc = new DOMParser().parseFromString(architecture.html || html, 'text/html');
+  const canApplyDirectly =
+    operations.length > 0 &&
+    operations.every((operation) => SIMPLE_GESTURES.has(operation.type)) &&
+    operations.every((operation) => Boolean(findTarget(doc, operation)));
+
+  if (classifiedRoute !== 'local-source-ast' && !canApplyDirectly) {
     return {
       code: html,
-      route,
+      route: classifiedRoute,
       applied: false,
       actionId: actionId(),
-      issues: [{ severity: 'warning', message: `Gesture batch routed to ${route}.` }],
+      issues: [{ severity: 'warning', message: `Gesture batch routed to ${classifiedRoute}.` }],
       elapsedMs: elapsed(startedAt),
     };
   }
 
-  const doc = new DOMParser().parseFromString(architecture.html || html, 'text/html');
   const issues: SourceEditResult['issues'] = [];
   let applied = 0;
 
@@ -257,7 +262,7 @@ export function applyGestureBatchToHtmlSource(
 
   return {
     code: applied > 0 ? serialize(doc) : html,
-    route,
+    route: 'local-source-ast',
     applied: applied > 0 && !issues.some((issue) => issue.severity === 'error'),
     actionId: actionId(),
     issues,

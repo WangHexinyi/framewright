@@ -70,6 +70,9 @@ async function proxyChatCompletion(request: IncomingMessage, response: ServerRes
       'Content-Type',
       providerResponse.headers.get('content-type') || 'text/event-stream; charset=utf-8',
     )
+    response.setHeader('Cache-Control', 'no-cache, no-transform')
+    response.setHeader('Connection', 'keep-alive')
+    response.setHeader('X-Accel-Buffering', 'no')
 
     if (!providerResponse.body) {
       response.end(await providerResponse.text())

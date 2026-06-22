@@ -849,6 +849,7 @@ label input {
 
 .code-highlight {
   color: #d9cdbc;
+  overflow: hidden;
   pointer-events: none;
 }
 

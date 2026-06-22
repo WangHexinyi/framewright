@@ -471,9 +471,16 @@ function App() {
   }, []);
 
   useLayoutEffect(() => {
-    if (!codePanelOpen || !codeAutoFollowRef.current) return;
-    requestAnimationFrame(scrollCodeToBottom);
-  }, [code, codePanelOpen, scrollCodeToBottom]);
+    if (!codePanelOpen) return;
+    const frame = requestAnimationFrame(() => {
+      if (codeAutoFollowRef.current) {
+        scrollCodeToBottom();
+      } else {
+        syncCodeScroll();
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [code, codePanelOpen, scrollCodeToBottom, syncCodeScroll]);
 
   useEffect(() => {
     return () => {
@@ -625,9 +632,12 @@ function App() {
   }
 
   async function handleGenerate() {
+    const submittedPrompt = prompt.trim();
+    if (!submittedPrompt || isLoading) return;
+
     const userMessage: Message = {
       role: 'user',
-      content: `${prompt}
+      content: `${submittedPrompt}
 
 Target viewport: desktop canvas first, roughly 1200px-1440px wide. Use the available width intentionally; do not return a narrow mobile-style card unless the user explicitly requested mobile.
 
@@ -635,6 +645,7 @@ Return a complete responsive single-file HTML prototype.`,
     };
     const nextMessages = [...messages, userMessage];
     setMessages(nextMessages);
+    setPrompt('');
 
     const response = await runAi(nextMessages);
     if (response) {
@@ -950,10 +961,17 @@ Return a complete responsive single-file HTML prototype.`,
           <textarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return;
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                void handleGenerate();
+              }
+            }}
             className="prompt-box"
             rows={5}
           />
-          <button className="primary-button" type="button" onClick={handleGenerate} disabled={isLoading}>
+          <button className="primary-button" type="button" onClick={handleGenerate} disabled={isLoading || !prompt.trim()}>
             {isLoading ? t.working : t.generateButton}
           </button>
         </section>
