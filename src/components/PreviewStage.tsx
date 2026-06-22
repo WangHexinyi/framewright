@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GestureOperation, SelectedElement } from '../types';
 import { isGestureOperation, isSelectedElement } from '../services/validation';
+import moveableScriptUrl from 'moveable/dist/moveable.min.js?url';
 
 interface PreviewStageProps {
   code: string;
@@ -11,7 +12,7 @@ interface PreviewStageProps {
   onSelectElement: (element: SelectedElement | null) => void;
 }
 
-function buildInspectorScript(): string {
+function buildInspectorScript(moveableUrl: string): string {
   return `<script id="__framewright_inspector__">
 (function() {
   var inspectMode = false;
@@ -30,6 +31,7 @@ function buildInspectorScript(): string {
   var selectColor = 'rgba(191, 91, 58, 0.95)';
   var hoverColor = 'rgba(191, 91, 58, 0.55)';
   var tempIdPrefix = '__fw_key_';
+  var moveableAssetUrl = ${JSON.stringify(moveableUrl)};
 
   function loadIdiomorph() {
     if (window.Idiomorph && typeof window.Idiomorph.morph === 'function') {
@@ -52,7 +54,7 @@ function buildInspectorScript(): string {
     if (moveablePromise) return moveablePromise;
     moveablePromise = new Promise(function(resolve, reject) {
       var script = document.createElement('script');
-      script.src = 'https://daybrush.com/moveable/release/latest/dist/moveable.min.js';
+      script.src = moveableAssetUrl;
       script.async = true;
       script.onload = function() { resolve(window.Moveable); };
       script.onerror = reject;
@@ -137,6 +139,10 @@ function buildInspectorScript(): string {
       '  background: transparent;',
       '  pointer-events: auto;',
       '  touch-action: none;',
+      '}',
+      '.moveable-control-box, .moveable-area, .moveable-line, .moveable-control {',
+      '  z-index: 2147483647 !important;',
+      '  pointer-events: auto !important;',
       '}'
     ].join('\\n');
     document.head.appendChild(style);
@@ -334,6 +340,8 @@ function buildInspectorScript(): string {
     if (injected) injected.remove();
     var interactionStyle = clone.querySelector('#__framewright_interaction_style__');
     if (interactionStyle) interactionStyle.remove();
+    Array.prototype.forEach.call(clone.querySelectorAll('script[src*="moveable"]'), function(n) { n.remove(); });
+    Array.prototype.forEach.call(clone.querySelectorAll('style[data-styled-id][data-styled-count]'), function(n) { n.remove(); });
     Array.prototype.forEach.call(clone.querySelectorAll('.__fw_selection_box,.__fw_selection_handle,.__fw_resize_handle,.__fw_inspect_hit_layer'), function(n) { n.remove(); });
     Array.prototype.forEach.call(clone.querySelectorAll('.moveable-control-box'), function(n) { n.remove(); });
     Array.prototype.forEach.call(clone.querySelectorAll('[data-fw-temp-id]'), function(n) {
@@ -506,6 +514,7 @@ function buildInspectorScript(): string {
     return Array.prototype.filter.call(document.body.querySelectorAll('*'), function(el) {
       return el !== target &&
         el.id !== '__framewright_inspector__' &&
+        !(el.classList && el.classList.contains('__fw_inspect_hit_layer')) &&
         !(el.classList && (el.classList.contains('__fw_resize_handle') || el.classList.contains('moveable-control-box')));
     }).slice(0, 120);
   }
@@ -523,6 +532,7 @@ function buildInspectorScript(): string {
         snapGap: true,
         snapElement: true,
         elementGuidelines: elementGuidelines(target),
+        dragArea: true,
         origin: false,
         keepRatio: false,
         throttleDrag: 1,
@@ -631,7 +641,7 @@ function buildInspectorScript(): string {
         outerHTML: el.outerHTML.slice(0, 800)
       }
     });
-    initSelectionBox(el);
+    initMoveable(el);
   }
 
   function deselect(notify) {
@@ -695,6 +705,7 @@ function buildInspectorScript(): string {
         e.clientY >= selectedRect.top &&
         e.clientY <= selectedRect.bottom;
       if (insideSelected) {
+        if (moveable) return;
         startMove(e, selectedEl);
         return;
       }
@@ -963,8 +974,8 @@ function buildInspectorScript(): string {
 </script>`;
 }
 
-function injectInspector(html: string): string {
-  const script = buildInspectorScript();
+function injectInspector(html: string, moveableUrl: string): string {
+  const script = buildInspectorScript(moveableUrl);
   if (!html.trim()) return '';
   if (html.includes('__framewright_inspector__')) return html;
   if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${script}</body>`);
@@ -981,7 +992,11 @@ export function PreviewStage({
 }: PreviewStageProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [device, setDevice] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
-  const [srcDoc, setSrcDoc] = useState(() => injectInspector(code));
+  const absoluteMoveableUrl = useMemo(
+    () => (typeof window === 'undefined' ? moveableScriptUrl : new URL(moveableScriptUrl, window.location.href).href),
+    [],
+  );
+  const [srcDoc, setSrcDoc] = useState(() => injectInspector(code, absoluteMoveableUrl));
   const iframeReadyRef = useRef(false);
 
   useEffect(() => {
@@ -995,7 +1010,7 @@ export function PreviewStage({
     }
 
     if (!iframeReadyRef.current || !iframeRef.current?.contentWindow) {
-      setSrcDoc(injectInspector(code));
+      setSrcDoc(injectInspector(code, absoluteMoveableUrl));
       return;
     }
 
@@ -1003,7 +1018,7 @@ export function PreviewStage({
       { source: 'framewright-parent', type: 'render-code', html: code },
       '*',
     );
-  }, [code, deferPreviewSync]);
+  }, [absoluteMoveableUrl, code, deferPreviewSync]);
 
   const postInspectMode = useCallback(() => {
     iframeRef.current?.contentWindow?.postMessage(
