@@ -17,7 +17,7 @@ function buildInspectorScript(): string {
   var inspectMode = false;
   var selectedEl = null;
   var hoveredEl = null;
-  var handle = null;
+  var selectionBox = null;
   var moveable = null;
   var idCounter = 1;
   var activeFrame = 0;
@@ -71,7 +71,34 @@ function buildInspectorScript(): string {
       '  scroll-behavior: auto !important;',
       '}',
       'html.__fw_interacting { cursor: grabbing !important; user-select: none !important; }',
-      '.__fw_resize_handle { touch-action: none; }'
+      '.__fw_selection_box {',
+      '  position: absolute;',
+      '  z-index: 2147483646;',
+      '  border: 2px solid rgba(67, 154, 255, 0.98);',
+      '  box-sizing: border-box;',
+      '  pointer-events: none;',
+      '  touch-action: none;',
+      '  background: transparent;',
+      '}',
+      '.__fw_selection_handle {',
+      '  position: absolute;',
+      '  width: 10px;',
+      '  height: 10px;',
+      '  border-radius: 999px;',
+      '  border: 2px solid rgba(67, 154, 255, 0.98);',
+      '  background: #fff;',
+      '  box-sizing: border-box;',
+      '  pointer-events: auto;',
+      '  touch-action: none;',
+      '}',
+      '.__fw_selection_handle[data-dir="nw"] { left: -6px; top: -6px; cursor: nwse-resize; }',
+      '.__fw_selection_handle[data-dir="n"] { left: 50%; top: -6px; transform: translateX(-50%); cursor: ns-resize; }',
+      '.__fw_selection_handle[data-dir="ne"] { right: -6px; top: -6px; cursor: nesw-resize; }',
+      '.__fw_selection_handle[data-dir="e"] { right: -6px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }',
+      '.__fw_selection_handle[data-dir="se"] { right: -6px; bottom: -6px; cursor: nwse-resize; }',
+      '.__fw_selection_handle[data-dir="s"] { left: 50%; bottom: -6px; transform: translateX(-50%); cursor: ns-resize; }',
+      '.__fw_selection_handle[data-dir="sw"] { left: -6px; bottom: -6px; cursor: nesw-resize; }',
+      '.__fw_selection_handle[data-dir="w"] { left: -6px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }'
     ].join('\\n');
     document.head.appendChild(style);
   }
@@ -126,7 +153,7 @@ function buildInspectorScript(): string {
   function ensureIds() {
     Array.prototype.forEach.call(document.body.querySelectorAll('*'), function(el) {
       if (el.id === '__framewright_inspector__') return;
-      if (el.classList && el.classList.contains('__fw_resize_handle')) return;
+      if (el.classList && (el.classList.contains('__fw_selection_box') || el.classList.contains('__fw_selection_handle'))) return;
       if (!el.dataset.blockId) el.dataset.blockId = blockIdFor(el);
       if (!el.dataset.frameId) el.dataset.frameId = uid();
     });
@@ -242,7 +269,7 @@ function buildInspectorScript(): string {
     if (injected) injected.remove();
     var interactionStyle = clone.querySelector('#__framewright_interaction_style__');
     if (interactionStyle) interactionStyle.remove();
-    Array.prototype.forEach.call(clone.querySelectorAll('.__fw_resize_handle'), function(n) { n.remove(); });
+    Array.prototype.forEach.call(clone.querySelectorAll('.__fw_selection_box,.__fw_selection_handle,.__fw_resize_handle'), function(n) { n.remove(); });
     Array.prototype.forEach.call(clone.querySelectorAll('.moveable-control-box'), function(n) { n.remove(); });
     Array.prototype.forEach.call(clone.querySelectorAll('[data-fw-temp-id]'), function(n) {
       if (n.id && n.id.indexOf(tempIdPrefix) === 0) n.removeAttribute('id');
@@ -334,6 +361,8 @@ function buildInspectorScript(): string {
   function isEditorChrome(el) {
     return !!(el && el.classList && (
       el.classList.contains('__fw_resize_handle') ||
+      el.classList.contains('__fw_selection_box') ||
+      el.classList.contains('__fw_selection_handle') ||
       el.classList.contains('moveable-control') ||
       el.classList.contains('moveable-control-box') ||
       el.classList.contains('moveable-line') ||
@@ -379,16 +408,18 @@ function buildInspectorScript(): string {
     return preferred || childStack[0] || hit;
   }
 
-  function placeHandle() {
-    if (!selectedEl || !handle) return;
+  function placeSelectionBox() {
+    if (!selectedEl || !selectionBox) return;
     var r = selectedEl.getBoundingClientRect();
-    handle.style.left = (r.right + window.scrollX - 9) + 'px';
-    handle.style.top = (r.bottom + window.scrollY - 9) + 'px';
+    selectionBox.style.left = (r.left + window.scrollX) + 'px';
+    selectionBox.style.top = (r.top + window.scrollY) + 'px';
+    selectionBox.style.width = Math.max(0, r.width) + 'px';
+    selectionBox.style.height = Math.max(0, r.height) + 'px';
   }
 
-  function removeHandle() {
-    if (handle && handle.parentNode) handle.parentNode.removeChild(handle);
-    handle = null;
+  function removeSelectionBox() {
+    if (selectionBox && selectionBox.parentNode) selectionBox.parentNode.removeChild(selectionBox);
+    selectionBox = null;
   }
 
   function destroyMoveable() {
@@ -407,7 +438,7 @@ function buildInspectorScript(): string {
   function initMoveable(target) {
     loadMoveable().then(function(Moveable) {
       destroyMoveable();
-      removeHandle();
+      removeSelectionBox();
       moveable = new Moveable(document.body, {
         target: target,
         draggable: true,
@@ -466,10 +497,29 @@ function buildInspectorScript(): string {
           gestureStartRect = null;
         });
     }).catch(function() {
-      if (!handle && selectedEl === target) {
-        placeHandle();
-      }
+      if (selectedEl === target) initSelectionBox(target);
     });
+  }
+
+  function initSelectionBox(target) {
+    destroyMoveable();
+    removeSelectionBox();
+    selectionBox = document.createElement('div');
+    selectionBox.className = '__fw_selection_box';
+    selectionBox.setAttribute('aria-hidden', 'true');
+    selectionBox.addEventListener('mousedown', function(e) {
+      if (!selectedEl || e.target !== selectionBox) return;
+      startMove(e, selectedEl);
+    });
+    ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].forEach(function(dir) {
+      var node = document.createElement('div');
+      node.className = '__fw_selection_handle';
+      node.dataset.dir = dir;
+      bindResize(node, target, dir);
+      selectionBox.appendChild(node);
+    });
+    document.body.appendChild(selectionBox);
+    placeSelectionBox();
   }
 
   function getTranslate(el) {
@@ -501,7 +551,7 @@ function buildInspectorScript(): string {
         outerHTML: el.outerHTML.slice(0, 800)
       }
     });
-    initMoveable(el);
+    initSelectionBox(el);
   }
 
   function deselect(notify) {
@@ -510,12 +560,12 @@ function buildInspectorScript(): string {
       selectedEl.style.outlineOffset = '';
     }
     selectedEl = null;
-    removeHandle();
+    removeSelectionBox();
     destroyMoveable();
     if (notify !== false) post('selected', { element: null });
   }
 
-  function bindResize(node, el) {
+  function bindResize(node, el, dir) {
     node.addEventListener('mousedown', function(e) {
       e.preventDefault();
       e.stopPropagation();
@@ -525,14 +575,54 @@ function buildInspectorScript(): string {
       var startY = e.clientY;
       var startW = before.width;
       var startH = before.height;
+      var minW = 32;
+      var minH = 24;
+      var baseX = 0;
+      var baseY = 0;
+      var transform = getComputedStyle(el).transform;
+      if (transform && transform !== 'none') {
+        try {
+          var m = new DOMMatrix(transform);
+          baseX = m.m41;
+          baseY = m.m42;
+        } catch (_) {}
+      }
 
       function move(ev) {
-        var nextWidth = Math.max(32, startW + ev.clientX - startX);
-        var nextHeight = Math.max(24, startH + ev.clientY - startY);
+        var dx = ev.clientX - startX;
+        var dy = ev.clientY - startY;
+        var nextWidth = startW;
+        var nextHeight = startH;
+        var nextX = baseX;
+        var nextY = baseY;
+
+        if (dir.indexOf('e') >= 0) nextWidth = startW + dx;
+        if (dir.indexOf('s') >= 0) nextHeight = startH + dy;
+        if (dir.indexOf('w') >= 0) {
+          nextWidth = startW - dx;
+          nextX = baseX + dx;
+        }
+        if (dir.indexOf('n') >= 0) {
+          nextHeight = startH - dy;
+          nextY = baseY + dy;
+        }
+
+        if (nextWidth < minW) {
+          if (dir.indexOf('w') >= 0) nextX += nextWidth - minW;
+          nextWidth = minW;
+        }
+        if (nextHeight < minH) {
+          if (dir.indexOf('n') >= 0) nextY += nextHeight - minH;
+          nextHeight = minH;
+        }
+
         scheduleApply(function() {
           el.style.width = Math.round(nextWidth) + 'px';
           el.style.height = Math.round(nextHeight) + 'px';
-          placeHandle();
+          if (dir.indexOf('w') >= 0 || dir.indexOf('n') >= 0) {
+            el.style.transform = 'translate3d(' + Math.round(nextX) + 'px, ' + Math.round(nextY) + 'px, 0)';
+          }
+          placeSelectionBox();
         });
       }
 
@@ -573,7 +663,7 @@ function buildInspectorScript(): string {
       scheduleApply(function() {
         el.style.transform = 'translate3d(' + nextX + 'px, ' + nextY + 'px, 0)';
         el.style.willChange = 'transform';
-        placeHandle();
+        placeSelectionBox();
       });
     }
 
@@ -680,6 +770,7 @@ function buildInspectorScript(): string {
 
   document.addEventListener('mousedown', function(e) {
     if (!inspectMode || !selectedEl) return;
+    if (isEditorChrome(e.target)) return;
     var target = selectableFromEvent(e);
     if (!target) return;
     if (moveable) return;
@@ -694,6 +785,14 @@ function buildInspectorScript(): string {
     e.stopPropagation();
     ensureIds();
     beginTextEdit(e, target);
+  }, true);
+
+  window.addEventListener('resize', function() {
+    if (selectedEl) placeSelectionBox();
+  });
+
+  window.addEventListener('scroll', function() {
+    if (selectedEl) placeSelectionBox();
   }, true);
 
   ensureIds();
