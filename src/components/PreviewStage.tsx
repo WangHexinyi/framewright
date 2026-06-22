@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type PointerEvent, useCallback, useEffect, useRef, useState } from 'react';
 import type { GestureOperation, SelectedElement } from '../types';
 import { isGestureOperation, isSelectedElement } from '../services/validation';
 
@@ -875,9 +875,11 @@ export function PreviewStage({
 }: PreviewStageProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [device, setDevice] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
+  const [pan, setPan] = useState({ x: 0, y: 0 });
   const [srcDoc, setSrcDoc] = useState(() => injectInspector(code));
   const iframeReadyRef = useRef(false);
   const inspectorUpdateRef = useRef(false);
+  const panStartRef = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null);
 
   useEffect(() => {
     if (inspectorUpdateRef.current) {
@@ -945,6 +947,37 @@ export function PreviewStage({
 
   const width = device === 'desktop' ? '100%' : device === 'tablet' ? '768px' : '390px';
 
+  function beginCanvasPan(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    if (event.target !== event.currentTarget) return;
+    panStartRef.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      panX: pan.x,
+      panY: pan.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function updateCanvasPan(event: PointerEvent<HTMLDivElement>) {
+    const start = panStartRef.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    setPan({
+      x: start.panX + event.clientX - start.x,
+      y: start.panY + event.clientY - start.y,
+    });
+  }
+
+  function endCanvasPan(event: PointerEvent<HTMLDivElement>) {
+    const start = panStartRef.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    panStartRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
   return (
     <section className="preview-stage">
       <div className="stage-toolbar">
@@ -953,6 +986,9 @@ export function PreviewStage({
           <span>Sandboxed iframe, no same-origin access</span>
         </div>
         <div className="segmented">
+          <button type="button" onClick={() => setPan({ x: 0, y: 0 })}>
+            reset
+          </button>
           {(['desktop', 'tablet', 'mobile'] as const).map((item) => (
             <button
               key={item}
@@ -965,9 +1001,15 @@ export function PreviewStage({
           ))}
         </div>
       </div>
-      <div className="stage-shell">
+      <div
+        className="stage-shell"
+        onPointerDown={beginCanvasPan}
+        onPointerMove={updateCanvasPan}
+        onPointerUp={endCanvasPan}
+        onPointerCancel={endCanvasPan}
+      >
         {code ? (
-          <div className="device-frame" style={{ width }}>
+          <div className="device-frame" style={{ width, transform: `translate3d(${pan.x}px, ${pan.y}px, 0)` }}>
             <iframe
               ref={iframeRef}
               title="Framewright preview"

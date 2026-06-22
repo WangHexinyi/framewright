@@ -35,6 +35,24 @@ If you deploy Framewright publicly:
 5. Add rate limits and abuse controls to model endpoints.
 6. Review any future file-system, plugin, account, or deployment automation carefully.
 
+Suggested starting Content Security Policy for a static hosted shell:
+
+```http
+Content-Security-Policy:
+  default-src 'self';
+  script-src 'self';
+  style-src 'self' 'unsafe-inline';
+  img-src 'self' data: https:;
+  connect-src 'self' https:;
+  frame-src 'self';
+  object-src 'none';
+  base-uri 'self';
+```
+
+This policy is only a starting point. If generated previews need additional network access, grant the smallest possible origin list and keep model provider credentials on a backend service.
+
+For local experiments, the browser settings panel can store an API key in local storage. Do not use that pattern for public deployments or shared machines.
+
 ## Reporting Issues
 
 Please open a GitHub issue with a minimal reproduction and mark it as security-related. Do not include private API keys, secrets, or sensitive generated content.

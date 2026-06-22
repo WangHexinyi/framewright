@@ -820,11 +820,7 @@ Return a complete responsive single-file HTML prototype.`,
       )}
       <aside className="control-panel" aria-hidden={!leftPanelOpen}>
         <header className="brand">
-          <div className="brand-mark">Fw</div>
-          <div>
-            <h1>Framewright</h1>
-            <p>{t.tagline}</p>
-          </div>
+          <h1>Framewright</h1>
           <button
             type="button"
             className="panel-collapse-button"

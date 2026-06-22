@@ -94,6 +94,12 @@ For public hosted deployments, do not expose provider API keys in browser JavaSc
 2. Backend attaches the provider API key.
 3. Backend streams the model response back to the browser.
 
+Advanced local configuration notes:
+
+- Any OpenAI-compatible endpoint can be used if it supports streaming chat completions.
+- Keep prompts component-scoped when possible; Framewright's prompt pruning is designed to send target HTML, related scoped CSS, parent context, and recent gestures instead of the full document.
+- Do not commit API keys to the repository. Use the in-browser settings only for local experiments.
+
 ## How To Use
 
 1. Enter a prompt and generate an interface.
@@ -106,6 +112,40 @@ For public hosted deployments, do not expose provider API keys in browser JavaSc
 8. Let local source AST sync apply simple edits immediately.
 9. Use AI compile only when the edit needs structural reasoning.
 10. Copy or export once sync is complete.
+
+## Quick Trial Workflow
+
+Paste this prompt into Framewright:
+
+```text
+Design a compact pricing card with a headline, short description, price, and one call-to-action button.
+```
+
+After generation:
+
+1. Drag the canvas background to pan the preview without changing the generated code.
+2. Turn on Inspect and select the card or button.
+3. Change the corner radius or colors in the Style panel.
+4. Drag or resize an element.
+5. Save deterministic edits through the local source AST path or enable auto compile.
+6. Collapse the source panel when you want a larger visual workspace.
+
+Minimal single-file HTML also works in the source panel:
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<body>
+  <main>
+    <section class="card">
+      <h1>Hello Framewright</h1>
+      <p>Select, reshape, and keep source in sync.</p>
+      <button>Start</button>
+    </section>
+  </main>
+</body>
+</html>
+```
 
 ## Editing Model
 

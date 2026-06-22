@@ -177,6 +177,8 @@ button {
 }
 
 .panel-collapse-button {
+  position: absolute;
+  right: 0;
   width: 32px;
   height: 32px;
   margin-left: auto;
@@ -283,25 +285,13 @@ button {
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+  position: relative;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
 }
 
-.brand-mark {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  border-radius: 12px;
-  background: var(--dark);
-  color: #fff7eb;
-  font-weight: 800;
-  letter-spacing: -0.04em;
-}
-
 .brand h1,
-.brand p,
 .section-heading h2,
 .stage-toolbar strong,
 .code-panel h2 {
@@ -310,10 +300,10 @@ button {
 
 .brand h1 {
   font-size: 24px;
+  text-align: center;
   letter-spacing: -0.05em;
 }
 
-.brand p,
 .hint,
 .stage-toolbar span,
 .ledger-summary span,
@@ -742,11 +732,17 @@ label input {
   justify-content: center;
   padding: 18px;
   overflow: auto;
+  cursor: grab;
+  touch-action: none;
   background:
     linear-gradient(90deg, rgba(36, 31, 27, 0.05) 1px, transparent 1px),
     linear-gradient(rgba(36, 31, 27, 0.05) 1px, transparent 1px),
     #e7ded3;
   background-size: 28px 28px;
+}
+
+.stage-shell:active {
+  cursor: grabbing;
 }
 
 .device-frame {
@@ -758,6 +754,7 @@ label input {
   background: white;
   box-shadow: 0 18px 60px rgba(48, 34, 22, 0.22);
   overflow: hidden;
+  will-change: transform;
 }
 
 .device-frame iframe {

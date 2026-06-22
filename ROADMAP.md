@@ -24,6 +24,17 @@ Framewright is a framework for visual editing of AI-generated front-end prototyp
 - Visual source/preview sync diagnostics.
 - Screenshot-based interaction tests.
 - Better error surfaces when local AST writeback is rejected.
+- Keyboard shortcuts for delete, undo/redo, duplicate, and alignment.
+- Multi-select, align, distribute, rotate, and z-index controls.
+
+## GitHub Review Suggestions
+
+- Add richer example media, including a short GIF or screenshot walkthrough.
+- Expand unit tests for `sourceEdit.ts`, `dom.ts`, and gesture-to-source writeback.
+- Add Playwright interaction tests for select, drag, resize, text edit, source sync, and rollback.
+- Improve scoped CSS parsing with a dedicated CSS parser before supporting complex declarations such as `!important`.
+- Document a hosted backend proxy pattern for public deployments without exposing provider API keys.
+- Add deployment examples beyond static hosting, such as Docker and self-hosting guidance.
 
 ## v0.3 - Framework Adapter Layer
 
