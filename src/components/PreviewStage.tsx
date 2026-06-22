@@ -72,24 +72,47 @@ function buildInspectorScript(): string {
       '}',
       'html.__fw_interacting { cursor: grabbing !important; user-select: none !important; }',
       '.__fw_selection_box {',
-      '  position: absolute;',
+      '  all: initial;',
+      '  position: fixed;',
       '  z-index: 2147483646;',
-      '  border: 2px solid rgba(67, 154, 255, 0.98);',
+      '  display: block;',
+      '  border: 2px solid var(--fw-select-color, rgba(67, 154, 255, 0.98));',
       '  box-sizing: border-box;',
       '  pointer-events: none;',
       '  touch-action: none;',
       '  background: transparent;',
+      '  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;',
       '}',
       '.__fw_selection_handle {',
+      '  all: initial;',
       '  position: absolute;',
+      '  display: block;',
       '  width: 10px;',
       '  height: 10px;',
       '  border-radius: 999px;',
-      '  border: 2px solid rgba(67, 154, 255, 0.98);',
+      '  border: 2px solid var(--fw-select-color, rgba(67, 154, 255, 0.98));',
       '  background: #fff;',
       '  box-sizing: border-box;',
       '  pointer-events: auto;',
       '  touch-action: none;',
+      '}',
+      '.__fw_selection_badge {',
+      '  all: initial;',
+      '  position: absolute;',
+      '  left: -2px;',
+      '  top: -28px;',
+      '  display: block;',
+      '  max-width: 180px;',
+      '  overflow: hidden;',
+      '  text-overflow: ellipsis;',
+      '  white-space: nowrap;',
+      '  padding: 4px 7px;',
+      '  border-radius: 7px;',
+      '  background: var(--fw-select-color, rgba(67, 154, 255, 0.98));',
+      '  color: #fff;',
+      '  font: 700 11px/1.2 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;',
+      '  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);',
+      '  pointer-events: none;',
       '}',
       '.__fw_selection_handle[data-dir="nw"] { left: -6px; top: -6px; cursor: nwse-resize; }',
       '.__fw_selection_handle[data-dir="n"] { left: 50%; top: -6px; transform: translateX(-50%); cursor: ns-resize; }',
@@ -193,6 +216,32 @@ function buildInspectorScript(): string {
       width: Math.round(r.width),
       height: Math.round(r.height)
     };
+  }
+
+  function elementKind(el) {
+    var tag = el.tagName;
+    if (['BUTTON', 'A'].indexOf(tag) >= 0 || el.getAttribute('role') === 'button') return 'button';
+    if (['INPUT', 'TEXTAREA', 'SELECT'].indexOf(tag) >= 0) return 'input';
+    if (['IMG', 'PICTURE', 'VIDEO', 'CANVAS', 'SVG'].indexOf(tag) >= 0) return 'media';
+    if (['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'SPAN', 'SMALL', 'STRONG', 'EM', 'LI', 'LABEL'].indexOf(tag) >= 0) return 'text';
+    var text = (el.textContent || '').trim();
+    var hasElementChildren = Array.prototype.some.call(el.children || [], function(child) {
+      return child.nodeType === Node.ELEMENT_NODE;
+    });
+    var cs = getComputedStyle(el);
+    var hasVisualFill = (cs.backgroundImage && cs.backgroundImage !== 'none') ||
+      (cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent') ||
+      (cs.borderImageSource && cs.borderImageSource !== 'none');
+    if (!hasElementChildren && text.length > 0) return 'text';
+    if (!text && hasVisualFill) return 'graphic';
+    return 'container';
+  }
+
+  function selectionColorFor(kind) {
+    if (kind === 'text') return 'rgba(39, 126, 255, 0.98)';
+    if (kind === 'button' || kind === 'input') return 'rgba(22, 163, 74, 0.98)';
+    if (kind === 'graphic' || kind === 'media') return 'rgba(168, 85, 247, 0.98)';
+    return 'rgba(245, 132, 53, 0.98)';
   }
 
   function parentContext(el) {
@@ -411,11 +460,12 @@ function buildInspectorScript(): string {
   function placeSelectionBox() {
     if (!selectedEl || !selectionBox) return;
     var r = selectedEl.getBoundingClientRect();
-    selectionBox.style.left = (r.left + window.scrollX) + 'px';
-    selectionBox.style.top = (r.top + window.scrollY) + 'px';
+    selectionBox.style.left = r.left + 'px';
+    selectionBox.style.top = r.top + 'px';
     selectionBox.style.width = Math.max(0, r.width) + 'px';
     selectionBox.style.height = Math.max(0, r.height) + 'px';
     selectionBox.style.borderRadius = getComputedStyle(selectedEl).borderRadius || '0px';
+    selectionBox.style.setProperty('--fw-select-color', selectionColorFor(elementKind(selectedEl)));
   }
 
   function removeSelectionBox() {
@@ -519,6 +569,10 @@ function buildInspectorScript(): string {
       bindResize(node, target, dir);
       selectionBox.appendChild(node);
     });
+    var badge = document.createElement('div');
+    badge.className = '__fw_selection_badge';
+    badge.textContent = elementKind(target) + ' · <' + target.tagName.toLowerCase() + '>';
+    selectionBox.appendChild(badge);
     document.body.appendChild(selectionBox);
     placeSelectionBox();
   }
@@ -538,7 +592,7 @@ function buildInspectorScript(): string {
     deselect(false);
     selectedEl = el;
     destroyMoveable();
-    selectedEl.style.outline = '2px solid ' + selectColor;
+    selectedEl.style.outline = '2px solid ' + selectionColorFor(elementKind(el));
     selectedEl.style.outlineOffset = '2px';
     post('selected', {
       element: {
@@ -546,6 +600,7 @@ function buildInspectorScript(): string {
         blockId: el.dataset.blockId,
         componentId: el.dataset.blockId,
         componentPath: componentPath(el),
+        elementKind: elementKind(el),
         tagName: el.tagName.toLowerCase(),
         selectorPath: selectorPath(el),
         textContent: (el.textContent || '').trim().slice(0, 160),

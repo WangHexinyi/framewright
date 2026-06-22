@@ -69,6 +69,7 @@ export interface SelectedElement {
   blockId?: string;
   componentId?: string;
   componentPath?: string[];
+  elementKind?: 'text' | 'button' | 'graphic' | 'container' | 'input' | 'media';
   tagName: string;
   selectorPath: string;
   textContent: string;

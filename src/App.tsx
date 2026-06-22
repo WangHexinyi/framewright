@@ -76,6 +76,13 @@ const COPY = {
     syncing: 'Syncing',
     modelStream: 'Model stream',
     streamEmpty: 'The latest model response will appear here while streaming.',
+    selected: 'Selected',
+    kindText: 'Text',
+    kindButton: 'Button',
+    kindGraphic: 'Graphic',
+    kindContainer: 'Container',
+    kindInput: 'Input',
+    kindMedia: 'Media',
   },
   zh: {
     tagline: '把可视化操作编译成代码。',
@@ -112,6 +119,13 @@ const COPY = {
     syncing: '同步中',
     modelStream: '模型流',
     streamEmpty: '模型流式响应会显示在这里。',
+    selected: '当前选中',
+    kindText: '文本',
+    kindButton: '按钮',
+    kindGraphic: '图形',
+    kindContainer: '容器',
+    kindInput: '输入',
+    kindMedia: '媒体',
   },
   fr: {
     tagline: 'Gestes visuels compilés en code.',
@@ -148,10 +162,26 @@ const COPY = {
     syncing: 'Synchronisation',
     modelStream: 'Flux modèle',
     streamEmpty: 'La dernière réponse du modèle apparaîtra ici.',
+    selected: 'Sélection',
+    kindText: 'Texte',
+    kindButton: 'Bouton',
+    kindGraphic: 'Forme',
+    kindContainer: 'Conteneur',
+    kindInput: 'Champ',
+    kindMedia: 'Média',
   },
 } satisfies Record<Language, Record<string, string>>;
 
 const DEFAULT_COLORS = ['#211c18', '#ffffff', '#bf5b3a', '#8e3f27', '#ffcf9f', '#f7f1e8', '#3b82f6', '#22c55e'];
+
+const KIND_COPY_KEYS = {
+  text: 'kindText',
+  button: 'kindButton',
+  graphic: 'kindGraphic',
+  container: 'kindContainer',
+  input: 'kindInput',
+  media: 'kindMedia',
+} as const;
 
 const STARTER_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -644,6 +674,9 @@ Return a complete responsive single-file HTML prototype.`,
   }
 
   const isCodeExportLocked = operations.length > 0 || compileState === 'queued' || compileState === 'compiling' || compileState === 'stale';
+  const selectedKindLabel = selectedElement?.elementKind
+    ? t[KIND_COPY_KEYS[selectedElement.elementKind]]
+    : '';
 
   return (
     <main className="app-shell">
@@ -697,9 +730,15 @@ Return a complete responsive single-file HTML prototype.`,
           </button>
           <p className="hint">{t.shapeHint}</p>
           {selectedElement && (
-            <div className="selected-card">
-              <strong>{`<${selectedElement.tagName}>`}</strong>
-              <span>{selectedElement.textContent || selectedElement.selectorPath}</span>
+            <div className={`selected-card kind-${selectedElement.elementKind || 'container'}`}>
+              <div className="selected-card-header">
+                <span>{t.selected}</span>
+                <strong>{selectedKindLabel}</strong>
+              </div>
+              <div className="selected-card-tag">
+                <strong>{`<${selectedElement.tagName}>`}</strong>
+                <span>{selectedElement.textContent || selectedElement.selectorPath}</span>
+              </div>
               <span>{selectedElement.blockId || selectedElement.frameId}</span>
             </div>
           )}

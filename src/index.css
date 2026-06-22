@@ -221,10 +221,49 @@ label select:focus,
 
 .selected-card {
   display: grid;
-  gap: 4px;
+  gap: 7px;
   padding: 10px;
+  border-left: 4px solid #f58435;
   border-radius: 10px;
   background: #f4e3d3;
+}
+
+.selected-card.kind-text {
+  border-left-color: #277eff;
+  background: #eaf2ff;
+}
+
+.selected-card.kind-button,
+.selected-card.kind-input {
+  border-left-color: #16a34a;
+  background: #eaf8ef;
+}
+
+.selected-card.kind-graphic,
+.selected-card.kind-media {
+  border-left-color: #a855f7;
+  background: #f4ecff;
+}
+
+.selected-card-header,
+.selected-card-tag {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.selected-card-header span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.selected-card-header strong {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(36, 31, 27, 0.08);
 }
 
 .selected-card strong {
