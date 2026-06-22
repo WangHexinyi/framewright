@@ -32,6 +32,127 @@ const DEFAULT_CONFIG: ApiConfig = {
   model: 'deepseek-chat',
 };
 
+type Language = 'en' | 'zh' | 'fr';
+
+const LANGUAGE_LABELS: Record<Language, string> = {
+  en: 'English',
+  zh: '中文',
+  fr: 'Français',
+};
+
+const COPY = {
+  en: {
+    tagline: 'Visual gestures compiled into code.',
+    generate: 'Generate',
+    generateButton: 'Generate interface',
+    working: 'Working...',
+    shape: 'Shape',
+    inspectOn: 'Inspect is on',
+    inspectOff: 'Turn on Inspect',
+    shapeHint: 'Click to select, drag to move, use the handles to resize, double-click text to edit.',
+    style: 'Style',
+    styleHint: 'Local edits update the source and preview immediately.',
+    colorTarget: 'Color target',
+    background: 'Background',
+    text: 'Text',
+    border: 'Border',
+    customColor: 'Custom color',
+    radius: 'Corner radius',
+    noSelection: 'Select an element to edit color and radius.',
+    components: 'Components',
+    registered: 'registered components',
+    compile: 'Compile',
+    recorded: 'recorded gestures',
+    autoOn: 'Auto compile on',
+    autoOff: 'Auto compile off',
+    exportLedger: 'Export ledger',
+    clear: 'Clear',
+    rollback: 'Roll back last patch',
+    clearMetrics: 'Clear metrics',
+    askAi: 'Ask AI to compile layout',
+    model: 'Model',
+    source: 'Source',
+    copy: 'Copy',
+    syncing: 'Syncing',
+    modelStream: 'Model stream',
+    streamEmpty: 'The latest model response will appear here while streaming.',
+  },
+  zh: {
+    tagline: '把可视化操作编译成代码。',
+    generate: '生成',
+    generateButton: '生成界面',
+    working: '处理中...',
+    shape: '塑形',
+    inspectOn: '检查模式已开启',
+    inspectOff: '开启检查模式',
+    shapeHint: '点击选择，拖拽移动，用控制点缩放，双击文字编辑。',
+    style: '样式',
+    styleHint: '本地修改会立即同步源码和预览。',
+    colorTarget: '颜色目标',
+    background: '背景',
+    text: '文字',
+    border: '边框',
+    customColor: '自定义颜色',
+    radius: '圆角',
+    noSelection: '先选择一个元素，再编辑颜色和圆角。',
+    components: '组件',
+    registered: '个已注册组件',
+    compile: '编译',
+    recorded: '条已记录操作',
+    autoOn: '自动编译已开',
+    autoOff: '自动编译已关',
+    exportLedger: '导出记录',
+    clear: '清空',
+    rollback: '回滚上个补丁',
+    clearMetrics: '清空指标',
+    askAi: '让 AI 编译布局',
+    model: '模型',
+    source: '源码',
+    copy: '复制',
+    syncing: '同步中',
+    modelStream: '模型流',
+    streamEmpty: '模型流式响应会显示在这里。',
+  },
+  fr: {
+    tagline: 'Gestes visuels compilés en code.',
+    generate: 'Générer',
+    generateButton: "Générer l'interface",
+    working: 'En cours...',
+    shape: 'Modeler',
+    inspectOn: 'Inspection activée',
+    inspectOff: "Activer l'inspection",
+    shapeHint: 'Cliquez pour sélectionner, glissez pour déplacer, utilisez les poignées pour redimensionner, double-cliquez pour modifier le texte.',
+    style: 'Style',
+    styleHint: 'Les edits locaux mettent à jour la source et l’aperçu immédiatement.',
+    colorTarget: 'Cible couleur',
+    background: 'Arrière-plan',
+    text: 'Texte',
+    border: 'Bordure',
+    customColor: 'Couleur personnalisée',
+    radius: 'Rayon des coins',
+    noSelection: 'Sélectionnez un élément pour modifier sa couleur et son rayon.',
+    components: 'Composants',
+    registered: 'composants enregistrés',
+    compile: 'Compiler',
+    recorded: 'gestes enregistrés',
+    autoOn: 'Compilation auto active',
+    autoOff: 'Compilation auto inactive',
+    exportLedger: 'Exporter le journal',
+    clear: 'Effacer',
+    rollback: 'Annuler le dernier patch',
+    clearMetrics: 'Effacer les métriques',
+    askAi: 'Demander à l’AI de compiler',
+    model: 'Modèle',
+    source: 'Source',
+    copy: 'Copier',
+    syncing: 'Synchronisation',
+    modelStream: 'Flux modèle',
+    streamEmpty: 'La dernière réponse du modèle apparaîtra ici.',
+  },
+} satisfies Record<Language, Record<string, string>>;
+
+const DEFAULT_COLORS = ['#211c18', '#ffffff', '#bf5b3a', '#8e3f27', '#ffcf9f', '#f7f1e8', '#3b82f6', '#22c55e'];
+
 const STARTER_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -148,11 +269,15 @@ function localSourceMetric(result: SourceEditResult): AiCallMetric {
 
 function App() {
   const [config, setConfig] = useState<ApiConfig>(readConfig);
+  const [language, setLanguage] = useState<Language>('en');
   const [prompt, setPrompt] = useState('Design a premium landing page for a calm AI writing app.');
   const [code, setCode] = useState(STARTER_HTML);
   const [messages, setMessages] = useState<Message[]>([]);
   const [operations, setOperations] = useState<GestureOperation[]>([]);
   const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(null);
+  const [colorTarget, setColorTarget] = useState<'background-color' | 'color' | 'border-color'>('background-color');
+  const [customColor, setCustomColor] = useState('#bf5b3a');
+  const [cornerRadius, setCornerRadius] = useState(24);
   const [inspectMode, setInspectMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [streamText, setStreamText] = useState('');
@@ -177,6 +302,7 @@ function App() {
     () => summarizeArchitectureCoverage(architecture.registry, architecture.scopedCss),
     [architecture],
   );
+  const t = COPY[language];
   const operationCountByType = useMemo(() => {
     return operations.reduce<Record<string, number>>((acc, operation) => {
       acc[operation.type] = (acc[operation.type] ?? 0) + 1;
@@ -214,6 +340,59 @@ function App() {
     setCompileIssues([]);
     setCompileState(autoCompileEnabled ? 'queued' : 'dirty');
   }, [autoCompileEnabled]);
+
+  const applySelectedStyle = useCallback((property: string, value: string) => {
+    if (!selectedElement) {
+      setError(t.noSelection);
+      return;
+    }
+
+    const styleOperation: GestureOperation = {
+      id: `style_${Date.now().toString(36)}`,
+      type: 'style',
+      targetKey: selectedElement.frameId,
+      blockId: selectedElement.blockId,
+      componentId: selectedElement.componentId || selectedElement.blockId,
+      componentPath: selectedElement.componentPath,
+      version: Date.now(),
+      frameId: selectedElement.frameId,
+      tagName: selectedElement.tagName,
+      selectorPath: selectedElement.selectorPath,
+      before: null,
+      after: null,
+      styleChange: { property, after: value },
+      inlineStyleAfter: '',
+      context: {
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        parent: null,
+        layoutHint: {
+          intent: 'direct style control',
+          reason: 'User changed a deterministic visual style through the local style panel.',
+          siblingCount: 0,
+        },
+      },
+      createdAt: Date.now(),
+    };
+
+    const sourceEdit = applyGestureBatchToHtmlSource(code, [styleOperation], architecture);
+    if (!sourceEdit.applied) {
+      setCompileIssues(sourceEdit.issues);
+      setCompileState('failed');
+      return;
+    }
+
+    compileVersionRef.current += 1;
+    setPatchVersions((prev) => [
+      createPatchVersion(architecture, sourceEdit.actionId, code, `local style ${property}`),
+      ...prev,
+    ].slice(0, 20));
+    setCode(sourceEdit.code);
+    setCompileIssues([...sourceEdit.issues, ...validateCompiledHtml(sourceEdit.code)]);
+    setAiMetrics((prev) => [localSourceMetric(sourceEdit), ...prev].slice(0, 50));
+    setOperations([]);
+    setCompileState('synced-local');
+    setError(null);
+  }, [architecture, code, selectedElement, t.noSelection]);
 
   async function runAi(nextMessages: Message[], streamToCode = true) {
     if (!hasApiKey) {
@@ -473,14 +652,25 @@ Return a complete responsive single-file HTML prototype.`,
           <div className="brand-mark">Fw</div>
           <div>
             <h1>Framewright</h1>
-            <p>Visual gestures compiled into code.</p>
+            <p>{t.tagline}</p>
           </div>
         </header>
+
+        <label className="language-control">
+          Language
+          <select value={language} onChange={(event) => setLanguage(event.target.value as Language)}>
+            {Object.entries(LANGUAGE_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <section className="panel-section">
           <div className="section-heading">
             <span>1</span>
-            <h2>Generate</h2>
+            <h2>{t.generate}</h2>
           </div>
           <textarea
             value={prompt}
@@ -489,25 +679,23 @@ Return a complete responsive single-file HTML prototype.`,
             rows={5}
           />
           <button className="primary-button" type="button" onClick={handleGenerate} disabled={isLoading}>
-            {isLoading ? 'Working...' : 'Generate interface'}
+            {isLoading ? t.working : t.generateButton}
           </button>
         </section>
 
         <section className="panel-section">
           <div className="section-heading">
             <span>2</span>
-            <h2>Shape</h2>
+            <h2>{t.shape}</h2>
           </div>
           <button
             type="button"
             className={inspectMode ? 'toggle-button active' : 'toggle-button'}
             onClick={() => setInspectMode((value) => !value)}
           >
-            {inspectMode ? 'Inspect is on' : 'Turn on Inspect'}
+            {inspectMode ? t.inspectOn : t.inspectOff}
           </button>
-          <p className="hint">
-            Click to select, drag to move, use the handle to resize, double-click text to edit.
-          </p>
+          <p className="hint">{t.shapeHint}</p>
           {selectedElement && (
             <div className="selected-card">
               <strong>{`<${selectedElement.tagName}>`}</strong>
@@ -519,13 +707,88 @@ Return a complete responsive single-file HTML prototype.`,
 
         <section className="panel-section">
           <div className="section-heading">
+            <span>3</span>
+            <h2>{t.style}</h2>
+          </div>
+          <p className="hint">{selectedElement ? t.styleHint : t.noSelection}</p>
+          <label>
+            {t.colorTarget}
+            <select
+              value={colorTarget}
+              onChange={(event) => setColorTarget(event.target.value as typeof colorTarget)}
+              disabled={!selectedElement}
+            >
+              <option value="background-color">{t.background}</option>
+              <option value="color">{t.text}</option>
+              <option value="border-color">{t.border}</option>
+            </select>
+          </label>
+          <div className="color-swatches" aria-label={t.colorTarget}>
+            {DEFAULT_COLORS.map((color) => (
+              <button
+                key={color}
+                type="button"
+                title={color}
+                style={{ backgroundColor: color }}
+                disabled={!selectedElement}
+                onClick={() => {
+                  setCustomColor(color);
+                  applySelectedStyle(colorTarget, color);
+                }}
+              />
+            ))}
+          </div>
+          <label>
+            {t.customColor}
+            <input
+              type="color"
+              value={customColor}
+              disabled={!selectedElement}
+              onChange={(event) => {
+                setCustomColor(event.target.value);
+                applySelectedStyle(colorTarget, event.target.value);
+              }}
+            />
+          </label>
+          <label>
+            {`${t.radius}: ${cornerRadius}px`}
+            <input
+              type="range"
+              min="0"
+              max="80"
+              value={cornerRadius}
+              disabled={!selectedElement}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                setCornerRadius(next);
+                applySelectedStyle('border-radius', `${next}px`);
+              }}
+            />
+          </label>
+          <input
+            type="number"
+            min="0"
+            max="240"
+            value={cornerRadius}
+            disabled={!selectedElement}
+            aria-label={t.radius}
+            onChange={(event) => {
+              const next = Math.max(0, Number(event.target.value) || 0);
+              setCornerRadius(next);
+              applySelectedStyle('border-radius', `${next}px`);
+            }}
+          />
+        </section>
+
+        <section className="panel-section">
+          <div className="section-heading">
             <span>Tree</span>
-            <h2>Components</h2>
+            <h2>{t.components}</h2>
           </div>
           <div className="ledger-summary">
             <div>
               <strong>{architectureCoverage.registryEntries}</strong>
-              <span>registered components</span>
+              <span>{t.registered}</span>
             </div>
             <div className="ledger-pills">
               <span>css {architectureCoverage.scopedCssBlocks}</span>
@@ -545,18 +808,19 @@ Return a complete responsive single-file HTML prototype.`,
 
         <section className="panel-section">
           <div className="section-heading">
-            <span>3</span>
-            <h2>Compile</h2>
+            <span>4</span>
+            <h2>{t.compile}</h2>
           </div>
           <div className="ledger-summary">
             <div>
               <strong>{operations.length}</strong>
-              <span>recorded gestures</span>
+              <span>{t.recorded}</span>
             </div>
             <div className="ledger-pills">
               <span>move {operationCountByType.move ?? 0}</span>
               <span>resize {operationCountByType.resize ?? 0}</span>
               <span>text {operationCountByType.editText ?? 0}</span>
+              <span>style {operationCountByType.style ?? 0}</span>
             </div>
           </div>
           <div className={`compile-status state-${compileState}`}>
@@ -565,7 +829,7 @@ Return a complete responsive single-file HTML prototype.`,
               className={autoCompileEnabled ? 'auto-compile active' : 'auto-compile'}
               onClick={() => setAutoCompileEnabled((value) => !value)}
             >
-              {autoCompileEnabled ? 'Auto compile on' : 'Auto compile off'}
+              {autoCompileEnabled ? t.autoOn : t.autoOff}
             </button>
             <span>
               {compileState === 'idle' && 'Code is ready.'}
@@ -580,18 +844,18 @@ Return a complete responsive single-file HTML prototype.`,
           </div>
           <div className="ledger-actions">
             <button type="button" onClick={handleExportLedger} disabled={operations.length === 0}>
-              Export ledger
+              {t.exportLedger}
             </button>
             <button type="button" onClick={() => setOperations([])} disabled={operations.length === 0}>
-              Clear
+              {t.clear}
             </button>
           </div>
           <div className="ledger-actions">
             <button type="button" onClick={handleRollback} disabled={patchVersions.length === 0}>
-              Roll back last patch
+              {t.rollback}
             </button>
             <button type="button" onClick={() => setAiMetrics([])} disabled={aiMetrics.length === 0}>
-              Clear metrics
+              {t.clearMetrics}
             </button>
           </div>
           <p className="hint">{summarizeMetrics(aiMetrics)}</p>
@@ -611,14 +875,14 @@ Return a complete responsive single-file HTML prototype.`,
             onClick={handleCompileLayout}
             disabled={isLoading || operations.length === 0}
           >
-            Ask AI to compile layout
+            {t.askAi}
           </button>
         </section>
 
         <section className="panel-section">
           <div className="section-heading">
             <span>API</span>
-            <h2>Model</h2>
+            <h2>{t.model}</h2>
           </div>
           <label>
             Base URL
@@ -671,15 +935,15 @@ Return a complete responsive single-file HTML prototype.`,
 
       <aside className="code-panel">
         <header>
-          <h2>Source</h2>
+          <h2>{t.source}</h2>
           <button type="button" disabled={isCodeExportLocked} onClick={() => navigator.clipboard.writeText(code)}>
-            {isCodeExportLocked ? 'Syncing' : 'Copy'}
+            {isCodeExportLocked ? t.syncing : t.copy}
           </button>
         </header>
         <textarea value={code} onChange={(event) => handleCodeChange(event.target.value)} spellCheck={false} />
         <div className="stream-box">
-          <strong>Model stream</strong>
-          <p>{streamText || 'The latest model response will appear here while streaming.'}</p>
+          <strong>{t.modelStream}</strong>
+          <p>{streamText || t.streamEmpty}</p>
         </div>
       </aside>
     </main>

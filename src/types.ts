@@ -11,7 +11,7 @@ export interface ApiConfig {
   model: string;
 }
 
-export type GestureType = 'move' | 'resize' | 'editText';
+export type GestureType = 'move' | 'resize' | 'editText' | 'style';
 
 export interface ElementRect {
   x: number;
@@ -55,6 +55,10 @@ export interface GestureOperation {
   after: ElementRect | null;
   textBefore?: string;
   textAfter?: string;
+  styleChange?: {
+    property: string;
+    after: string;
+  };
   inlineStyleAfter: string;
   context: LayoutContext;
   createdAt: number;

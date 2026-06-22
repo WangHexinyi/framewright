@@ -415,6 +415,7 @@ function buildInspectorScript(): string {
     selectionBox.style.top = (r.top + window.scrollY) + 'px';
     selectionBox.style.width = Math.max(0, r.width) + 'px';
     selectionBox.style.height = Math.max(0, r.height) + 'px';
+    selectionBox.style.borderRadius = getComputedStyle(selectedEl).borderRadius || '0px';
   }
 
   function removeSelectionBox() {
