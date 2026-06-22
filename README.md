@@ -126,12 +126,12 @@ Design a compact pricing card with a headline, short description, price, and one
 
 After generation:
 
-1. Drag the canvas background to pan the preview without changing the generated code.
-2. Turn on Inspect and select the card or button.
-3. Change the corner radius or colors in the Style panel.
-4. Drag or resize an element.
-5. Save deterministic edits through the local source AST path or enable auto compile.
-6. Collapse the source panel when you want a larger visual workspace.
+1. Turn on Inspect and select the card or button.
+2. Change the corner radius or colors in the Style panel.
+3. Drag or resize an element.
+4. Save deterministic edits through the local source AST path or enable auto compile.
+5. Collapse or resize the source panel when you want a larger visual workspace.
+6. Turn Inspect off when you want to test the generated page's own hover, click, and animation behavior.
 
 Minimal single-file HTML also works in the source panel:
 
