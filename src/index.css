@@ -222,27 +222,12 @@ label select:focus,
 .selected-card {
   display: grid;
   gap: 7px;
-  padding: 10px;
-  border-left: 4px solid #f58435;
-  border-radius: 10px;
-  background: #f4e3d3;
-}
-
-.selected-card.kind-text {
-  border-left-color: #277eff;
-  background: #eaf2ff;
-}
-
-.selected-card.kind-button,
-.selected-card.kind-input {
-  border-left-color: #16a34a;
-  background: #eaf8ef;
-}
-
-.selected-card.kind-graphic,
-.selected-card.kind-media {
-  border-left-color: #a855f7;
-  background: #f4ecff;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.56);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.65) inset;
+  backdrop-filter: blur(14px) saturate(1.12);
 }
 
 .selected-card-header,
@@ -263,7 +248,8 @@ label select:focus,
 .selected-card-header strong {
   padding: 3px 7px;
   border-radius: 999px;
-  background: rgba(36, 31, 27, 0.08);
+  background: rgba(255, 255, 255, 0.48);
+  color: var(--ink);
 }
 
 .selected-card strong {
