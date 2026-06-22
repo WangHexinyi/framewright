@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PreviewStage } from './components/PreviewStage';
 import {
   extractHtmlBlock,
@@ -23,6 +23,7 @@ import {
 } from './architecture';
 
 const STORAGE_KEY = 'framewright.apiConfig';
+const LAYOUT_STORAGE_KEY = 'framewright.layout';
 
 type CompileState = 'idle' | 'dirty' | 'queued' | 'compiling' | 'synced' | 'synced-local' | 'stale' | 'failed';
 
@@ -76,6 +77,8 @@ const COPY = {
     syncing: 'Syncing',
     modelStream: 'Model stream',
     streamEmpty: 'The latest model response will appear here while streaming.',
+    collapsePanel: 'Collapse controls',
+    openPanel: 'Open controls',
     selected: 'Selected',
     kindText: 'Text',
     kindButton: 'Button',
@@ -119,6 +122,8 @@ const COPY = {
     syncing: '同步中',
     modelStream: '模型流',
     streamEmpty: '模型流式响应会显示在这里。',
+    collapsePanel: '收起控制栏',
+    openPanel: '打开控制栏',
     selected: '当前选中',
     kindText: '文本',
     kindButton: '按钮',
@@ -162,6 +167,8 @@ const COPY = {
     syncing: 'Synchronisation',
     modelStream: 'Flux modèle',
     streamEmpty: 'La dernière réponse du modèle apparaîtra ici.',
+    collapsePanel: 'Réduire les contrôles',
+    openPanel: 'Ouvrir les contrôles',
     selected: 'Sélection',
     kindText: 'Texte',
     kindButton: 'Bouton',
@@ -284,6 +291,20 @@ function readConfig(): ApiConfig {
   }
 }
 
+function readLayout(): { leftPanelOpen: boolean; workspaceRatio: number } {
+  try {
+    const saved = localStorage.getItem(LAYOUT_STORAGE_KEY);
+    if (!saved) return { leftPanelOpen: true, workspaceRatio: 0.72 };
+    const parsed = JSON.parse(saved) as Partial<{ leftPanelOpen: boolean; workspaceRatio: number }>;
+    return {
+      leftPanelOpen: parsed.leftPanelOpen ?? true,
+      workspaceRatio: Math.min(0.86, Math.max(0.38, parsed.workspaceRatio ?? 0.72)),
+    };
+  } catch {
+    return { leftPanelOpen: true, workspaceRatio: 0.72 };
+  }
+}
+
 function localSourceMetric(result: SourceEditResult): AiCallMetric {
   return {
     id: `metric_${Date.now().toString(36)}`,
@@ -299,6 +320,7 @@ function localSourceMetric(result: SourceEditResult): AiCallMetric {
 
 function App() {
   const [config, setConfig] = useState<ApiConfig>(readConfig);
+  const initialLayout = useMemo(() => readLayout(), []);
   const [language, setLanguage] = useState<Language>('en');
   const [prompt, setPrompt] = useState('Design a premium landing page for a calm AI writing app.');
   const [code, setCode] = useState(STARTER_HTML);
@@ -308,6 +330,8 @@ function App() {
   const [colorTarget, setColorTarget] = useState<'background-color' | 'color' | 'border-color'>('background-color');
   const [customColor, setCustomColor] = useState('#bf5b3a');
   const [cornerRadius, setCornerRadius] = useState(24);
+  const [leftPanelOpen, setLeftPanelOpen] = useState(initialLayout.leftPanelOpen);
+  const [workspaceRatio, setWorkspaceRatio] = useState(initialLayout.workspaceRatio);
   const [inspectMode, setInspectMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [streamText, setStreamText] = useState('');
@@ -321,10 +345,15 @@ function App() {
   const compileVersionRef = useRef(0);
   const activeCompileRef = useRef(false);
   const autoCompileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appShellRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
   }, [config]);
+
+  useEffect(() => {
+    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify({ leftPanelOpen, workspaceRatio }));
+  }, [leftPanelOpen, workspaceRatio]);
 
   const hasApiKey = config.apiKey.trim().length > 0;
   const architecture = useMemo(() => buildComponentArchitecture(code, 'framewright'), [code]);
@@ -673,20 +702,74 @@ Return a complete responsive single-file HTML prototype.`,
     setCompileState('idle');
   }
 
+  function beginWorkspaceResize(event: React.PointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const shell = appShellRef.current;
+    if (!shell) return;
+    const rect = shell.getBoundingClientRect();
+    const leftWidth = leftPanelOpen ? 340 : 0;
+    const fixedGapWidth = leftPanelOpen ? 28 : 16;
+    const available = Math.max(520, rect.width - leftWidth - fixedGapWidth - 24);
+
+    function move(pointerEvent: PointerEvent) {
+      const workspaceLeft = rect.left + 12 + leftWidth + (leftPanelOpen ? 12 : 0);
+      const next = (pointerEvent.clientX - workspaceLeft) / available;
+      setWorkspaceRatio(Math.min(0.86, Math.max(0.38, next)));
+    }
+
+    function up() {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      document.body.classList.remove('resizing-workspace');
+    }
+
+    document.body.classList.add('resizing-workspace');
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
   const isCodeExportLocked = operations.length > 0 || compileState === 'queued' || compileState === 'compiling' || compileState === 'stale';
   const selectedKindLabel = selectedElement?.elementKind
     ? t[KIND_COPY_KEYS[selectedElement.elementKind]]
     : '';
+  const shellStyle = {
+    '--left-panel-width': leftPanelOpen ? '340px' : '0px',
+    '--preview-ratio': workspaceRatio,
+  } as CSSProperties;
 
   return (
-    <main className="app-shell">
-      <aside className="control-panel">
+    <main
+      ref={appShellRef}
+      className={leftPanelOpen ? 'app-shell' : 'app-shell left-collapsed'}
+      style={shellStyle}
+    >
+      {!leftPanelOpen && (
+        <button
+          type="button"
+          className="drawer-tab"
+          onClick={() => setLeftPanelOpen(true)}
+          aria-label={t.openPanel}
+          title={t.openPanel}
+        >
+          Fw
+        </button>
+      )}
+      <aside className="control-panel" aria-hidden={!leftPanelOpen}>
         <header className="brand">
           <div className="brand-mark">Fw</div>
           <div>
             <h1>Framewright</h1>
             <p>{t.tagline}</p>
           </div>
+          <button
+            type="button"
+            className="panel-collapse-button"
+            onClick={() => setLeftPanelOpen(false)}
+            aria-label={t.collapsePanel}
+            title={t.collapsePanel}
+          >
+            ‹
+          </button>
         </header>
 
         <label className="language-control">
@@ -963,13 +1046,23 @@ Return a complete responsive single-file HTML prototype.`,
         )}
       </aside>
 
-      <PreviewStage
-        code={code}
-        inspectMode={inspectMode}
-        deferPreviewSync={autoCompileEnabled && !isLoading}
-        onCodeChange={handleCodeChange}
-        onOperation={handleOperation}
-        onSelectElement={setSelectedElement}
+      <div className="preview-slot">
+        <PreviewStage
+          code={code}
+          inspectMode={inspectMode}
+          deferPreviewSync={autoCompileEnabled && !isLoading}
+          onCodeChange={handleCodeChange}
+          onOperation={handleOperation}
+          onSelectElement={setSelectedElement}
+        />
+      </div>
+
+      <button
+        type="button"
+        className="workspace-resizer"
+        onPointerDown={beginWorkspaceResize}
+        aria-label="Resize preview and source panels"
+        title="Drag to resize preview/source"
       />
 
       <aside className="code-panel">
