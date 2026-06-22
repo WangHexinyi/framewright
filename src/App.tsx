@@ -74,6 +74,7 @@ const COPY = {
     model: 'Model',
     source: 'Source',
     copy: 'Copy',
+    copied: 'Copied',
     syncing: 'Syncing',
     modelStream: 'Model stream',
     streamEmpty: 'The latest model response will appear here while streaming.',
@@ -124,6 +125,7 @@ const COPY = {
     model: '模型',
     source: '源码',
     copy: '复制',
+    copied: '已复制',
     syncing: '同步中',
     modelStream: '模型流',
     streamEmpty: '模型流式响应会显示在这里。',
@@ -174,6 +176,7 @@ const COPY = {
     model: 'Modèle',
     source: 'Source',
     copy: 'Copier',
+    copied: 'Copié',
     syncing: 'Synchronisation',
     modelStream: 'Flux modèle',
     streamEmpty: 'La dernière réponse du modèle apparaîtra ici.',
@@ -388,6 +391,7 @@ function App() {
   const [inspectMode, setInspectMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [streamText, setStreamText] = useState('');
+  const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [compileIssues, setCompileIssues] = useState<CompileIssue[]>([]);
   const [autoCompileEnabled, setAutoCompileEnabled] = useState(false);
@@ -766,6 +770,28 @@ Return a complete responsive single-file HTML prototype.`,
     setCompileState('idle');
   }
 
+  async function handleCopyCode() {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(code);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = code;
+        textarea.setAttribute('readonly', 'true');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopyState('copied');
+      window.setTimeout(() => setCopyState('idle'), 1200);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Copy failed.');
+    }
+  }
+
   function beginSourceResize(event: React.PointerEvent<HTMLButtonElement>) {
     event.preventDefault();
     const shell = appShellRef.current;
@@ -788,7 +814,6 @@ Return a complete responsive single-file HTML prototype.`,
     window.addEventListener('pointerup', up);
   }
 
-  const isCodeExportLocked = operations.length > 0 || compileState === 'queued' || compileState === 'compiling' || compileState === 'stale';
   const selectedKindLabel = selectedElement?.elementKind
     ? t[KIND_COPY_KEYS[selectedElement.elementKind]]
     : '';
@@ -1160,8 +1185,8 @@ Return a complete responsive single-file HTML prototype.`,
         <header>
           <h2>{t.source}</h2>
           <div className="code-actions">
-            <button type="button" disabled={isCodeExportLocked} onClick={() => navigator.clipboard.writeText(code)}>
-              {isCodeExportLocked ? t.syncing : t.copy}
+            <button type="button" className="copy-code-button" onClick={() => void handleCopyCode()}>
+              {copyState === 'copied' ? t.copied : t.copy}
             </button>
             <button
               type="button"

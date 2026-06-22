@@ -817,6 +817,21 @@ label input {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
+}
+
+.copy-code-button {
+  min-width: 74px;
+  white-space: nowrap;
+}
+
+.code-actions .panel-collapse-button {
+  position: static;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  margin-left: 0;
+  padding: 0;
 }
 
 .code-editor {
