@@ -379,7 +379,7 @@ function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [operations, setOperations] = useState<GestureOperation[]>([]);
   const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(null);
-  const [colorTarget, setColorTarget] = useState<'background-color' | 'color' | 'border-color'>('background-color');
+  const [colorTarget, setColorTarget] = useState<'background' | 'color' | 'border-color'>('background');
   const [customColor, setCustomColor] = useState('#bf5b3a');
   const [cornerRadius, setCornerRadius] = useState(24);
   const [leftPanelOpen, setLeftPanelOpen] = useState(initialLayout.leftPanelOpen);
@@ -900,7 +900,7 @@ Return a complete responsive single-file HTML prototype.`,
               onChange={(event) => setColorTarget(event.target.value as typeof colorTarget)}
               disabled={!selectedElement}
             >
-              <option value="background-color">{t.background}</option>
+              <option value="background">{t.background}</option>
               <option value="color">{t.text}</option>
               <option value="border-color">{t.border}</option>
             </select>

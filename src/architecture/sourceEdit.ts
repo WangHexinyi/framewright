@@ -156,7 +156,8 @@ function declarationsFor(operation: GestureOperation): Record<string, string> {
     styleChange?: { property: string; after: string };
   }).styleChange;
   if (operationType === 'style' && styleChange) {
-    declarations[styleChange.property.toLowerCase()] = styleChange.after;
+    const property = styleChange.property.toLowerCase();
+    declarations[property === 'background-color' ? 'background' : property] = styleChange.after;
   }
   return declarations;
 }

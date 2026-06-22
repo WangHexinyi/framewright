@@ -1,6 +1,6 @@
 import type { ElementRect, GestureOperation, GestureType, SelectedElement } from '../types';
 
-const gestureTypes = new Set<GestureType>(['move', 'resize', 'editText']);
+const gestureTypes = new Set<GestureType>(['move', 'resize', 'editText', 'style']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -12,6 +12,12 @@ function isString(value: unknown): value is string {
 
 function isNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isStyleChange(value: unknown): value is { property: string; after: string } {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+  return isString(value.property) && isString(value.after);
 }
 
 function isRect(value: unknown): value is ElementRect {
@@ -42,6 +48,7 @@ export function isGestureOperation(value: unknown): value is GestureOperation {
     isString(value.selectorPath) &&
     isRect(value.before) &&
     isRect(value.after) &&
+    isStyleChange(value.styleChange) &&
     isString(value.inlineStyleAfter) &&
     isRecord(context) &&
     isRecord(viewport) &&
