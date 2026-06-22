@@ -8,8 +8,12 @@ Generate complete, single-file HTML prototypes with:
 - CSS inside <style>
 - optional vanilla JavaScript inside <script>
 - no external build step
-- responsive layout by default
+- desktop-first responsive layout by default
+- a primary desktop composition for a 1200px-1440px wide canvas before tablet/mobile fallbacks
+- full use of available desktop space with appropriate max-widths, columns, spacing, and visual hierarchy
 - stable data-frame-id attributes on meaningful layout and content elements
+
+Do not default to a narrow phone-card layout when the user asks for a desktop UI, interface, landing page, dashboard, profile, business card, or editor canvas. A card can be part of the design, but the overall composition should still feel intentionally placed in a desktop viewport unless the user explicitly asks for mobile.
 
 When updating an existing prototype, preserve every matching data-frame-id exactly. These keys are used by the preview engine to keep DOM state, focus, and visual edits stable.
 

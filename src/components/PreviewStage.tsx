@@ -18,6 +18,7 @@ function buildInspectorScript(): string {
   var selectedEl = null;
   var hoveredEl = null;
   var selectionBox = null;
+  var hitLayer = null;
   var moveable = null;
   var idCounter = 1;
   var activeFrame = 0;
@@ -125,7 +126,18 @@ function buildInspectorScript(): string {
       '.__fw_selection_handle[data-dir="se"] { right: -6px; bottom: -6px; cursor: nwse-resize; }',
       '.__fw_selection_handle[data-dir="s"] { left: 50%; bottom: -6px; transform: translateX(-50%); cursor: ns-resize; }',
       '.__fw_selection_handle[data-dir="sw"] { left: -6px; bottom: -6px; cursor: nesw-resize; }',
-      '.__fw_selection_handle[data-dir="w"] { left: -6px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }'
+      '.__fw_selection_handle[data-dir="w"] { left: -6px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }',
+      '.__fw_inspect_hit_layer {',
+      '  all: initial;',
+      '  position: fixed;',
+      '  inset: 0;',
+      '  z-index: 2147483645;',
+      '  display: block;',
+      '  cursor: crosshair;',
+      '  background: transparent;',
+      '  pointer-events: auto;',
+      '  touch-action: none;',
+      '}'
     ].join('\\n');
     document.head.appendChild(style);
   }
@@ -367,6 +379,7 @@ function buildInspectorScript(): string {
       stripTempIds(document);
       ensureInteractionStyle();
       ensureIds();
+      if (inspectMode) ensureInspectHitLayer();
       remoteApplyInProgress = false;
       post('code-updated', { html: cleanHtml() });
     });
@@ -429,6 +442,7 @@ function buildInspectorScript(): string {
         el !== document.documentElement &&
         !isEditorChrome(el) &&
         el.id !== '__framewright_inspector__' &&
+        !(el.classList && el.classList.contains('__fw_inspect_hit_layer')) &&
         !(el.closest && el.closest('.moveable-control-box'));
     });
     return stack[0] || null;
@@ -625,6 +639,72 @@ function buildInspectorScript(): string {
     if (notify !== false) post('selected', { element: null });
   }
 
+  function ensureInspectHitLayer() {
+    ensureInteractionStyle();
+    if (hitLayer && hitLayer.parentNode) return;
+    hitLayer = document.createElement('div');
+    hitLayer.className = '__fw_inspect_hit_layer';
+    hitLayer.setAttribute('aria-hidden', 'true');
+
+    hitLayer.addEventListener('mousemove', function(e) {
+      if (!inspectMode) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var target = selectableFromEvent(e);
+      if (!target || target === document.body || target === document.documentElement) {
+        clearHover();
+        return;
+      }
+      if (target === hoveredEl) return;
+      clearHover();
+      hoveredEl = target;
+      if (hoveredEl !== selectedEl) {
+        hoveredEl.style.outline = '2px dashed ' + hoverColor;
+        hoveredEl.style.outlineOffset = '2px';
+      }
+    });
+
+    hitLayer.addEventListener('mouseleave', function() {
+      if (inspectMode) clearHover();
+    });
+
+    hitLayer.addEventListener('click', function(e) {
+      if (!inspectMode) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var target = selectableFromEvent(e);
+      if (!target || target === document.body || target === document.documentElement) return;
+      ensureIds();
+      select(target);
+    });
+
+    hitLayer.addEventListener('mousedown', function(e) {
+      if (!inspectMode || !selectedEl) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var target = selectableFromEvent(e);
+      if (!target || moveable) return;
+      if (selectedEl.contains(target)) startMove(e, selectedEl);
+    });
+
+    hitLayer.addEventListener('dblclick', function(e) {
+      if (!inspectMode) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var target = selectableFromEvent(e);
+      if (!target || target === document.body || target === document.documentElement) return;
+      ensureIds();
+      beginTextEdit(e, target);
+    });
+
+    document.body.appendChild(hitLayer);
+  }
+
+  function removeInspectHitLayer() {
+    if (hitLayer && hitLayer.parentNode) hitLayer.parentNode.removeChild(hitLayer);
+    hitLayer = null;
+  }
+
   function bindResize(node, el, dir) {
     node.addEventListener('mousedown', function(e) {
       e.preventDefault();
@@ -795,6 +875,8 @@ function buildInspectorScript(): string {
       inspectMode = !!e.data.enabled;
       document.documentElement.classList.toggle('__fw_inspect_mode', inspectMode);
       document.body.style.cursor = inspectMode ? 'crosshair' : '';
+      if (inspectMode) ensureInspectHitLayer();
+      else removeInspectHitLayer();
       clearHover();
       if (!inspectMode) deselect();
     }

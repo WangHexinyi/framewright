@@ -607,6 +607,8 @@ function App() {
       role: 'user',
       content: `${prompt}
 
+Target viewport: desktop canvas first, roughly 1200px-1440px wide. Use the available width intentionally; do not return a narrow mobile-style card unless the user explicitly requested mobile.
+
 Return a complete responsive single-file HTML prototype.`,
     };
     const nextMessages = [...messages, userMessage];
