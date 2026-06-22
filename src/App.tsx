@@ -1,4 +1,4 @@
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PreviewStage } from './components/PreviewStage';
 import {
   extractHtmlBlock,
@@ -76,8 +76,8 @@ const COPY = {
     copy: 'Copy',
     copied: 'Copied',
     syncing: 'Syncing',
-    modelStream: 'Model stream',
-    streamEmpty: 'The latest model response will appear here while streaming.',
+    modelStream: 'Run monitor',
+    streamEmpty: 'Model activity and extraction status will appear here.',
     collapsePanel: 'Collapse controls',
     openPanel: 'Open controls',
     closeSource: 'Collapse source',
@@ -127,8 +127,8 @@ const COPY = {
     copy: '复制',
     copied: '已复制',
     syncing: '同步中',
-    modelStream: '模型流',
-    streamEmpty: '模型流式响应会显示在这里。',
+    modelStream: '运行监控',
+    streamEmpty: '模型活动和 HTML 提取状态会显示在这里。',
     collapsePanel: '收起控制栏',
     openPanel: '打开控制栏',
     closeSource: '收起源码',
@@ -178,8 +178,8 @@ const COPY = {
     copy: 'Copier',
     copied: 'Copié',
     syncing: 'Synchronisation',
-    modelStream: 'Flux modèle',
-    streamEmpty: 'La dernière réponse du modèle apparaîtra ici.',
+    modelStream: 'Moniteur',
+    streamEmpty: 'L’activité du modèle et l’état d’extraction HTML apparaîtront ici.',
     collapsePanel: 'Réduire les contrôles',
     openPanel: 'Ouvrir les contrôles',
     closeSource: 'Réduire la source',
@@ -406,6 +406,7 @@ function App() {
   const codeHighlightRef = useRef<HTMLPreElement | null>(null);
   const codeTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const codeAutoFollowRef = useRef(true);
+  const codeAutoScrollingRef = useRef(false);
   const pendingStreamCodeRef = useRef('');
   const streamCodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousCodeRef = useRef(STARTER_HTML);
@@ -453,14 +454,18 @@ function App() {
     const textarea = codeTextareaRef.current;
     const highlight = codeHighlightRef.current;
     if (!textarea) return;
+    codeAutoScrollingRef.current = true;
     textarea.scrollTop = textarea.scrollHeight;
     if (highlight) {
       highlight.scrollTop = textarea.scrollTop;
       highlight.scrollLeft = textarea.scrollLeft;
     }
+    window.setTimeout(() => {
+      codeAutoScrollingRef.current = false;
+    }, 0);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!codePanelOpen || !codeAutoFollowRef.current) return;
     requestAnimationFrame(scrollCodeToBottom);
   }, [code, codePanelOpen, scrollCodeToBottom]);
@@ -470,6 +475,16 @@ function App() {
       if (streamCodeTimerRef.current) window.clearTimeout(streamCodeTimerRef.current);
     };
   }, []);
+
+  const streamMonitorText = useMemo(() => {
+    if (!isLoading && !streamText) return t.streamEmpty;
+    const html = extractHtmlBlock(streamText);
+    const received = streamText.length;
+    if (html) {
+      return `${isLoading ? 'Streaming' : 'Latest response'}: HTML detected, ${html.length.toLocaleString()} code characters, ${received.toLocaleString()} total response characters.`;
+    }
+    return `${isLoading ? 'Streaming' : 'Latest response'}: waiting for fenced HTML, ${received.toLocaleString()} response characters received.`;
+  }, [isLoading, streamText, t.streamEmpty]);
 
   const handleCodeChange = useCallback((nextCode: string) => {
     compileVersionRef.current += 1;
@@ -582,7 +597,7 @@ function App() {
             streamCodeTimerRef.current = window.setTimeout(() => {
               streamCodeTimerRef.current = null;
               setCode(pendingStreamCodeRef.current);
-            }, 180);
+            }, 500);
           }
         }
       });
@@ -1263,6 +1278,10 @@ Return a complete responsive single-file HTML prototype.`,
             value={code}
             onChange={(event) => handleCodeChange(event.target.value)}
             onScroll={(event) => {
+              if (codeAutoScrollingRef.current) {
+                syncCodeScroll();
+                return;
+              }
               const textarea = event.currentTarget;
               const distanceFromBottom = textarea.scrollHeight - textarea.clientHeight - textarea.scrollTop;
               codeAutoFollowRef.current = distanceFromBottom < 24;
@@ -1273,7 +1292,7 @@ Return a complete responsive single-file HTML prototype.`,
         </div>
         <div className="stream-box">
           <strong>{t.modelStream}</strong>
-          <p>{streamText || t.streamEmpty}</p>
+          <p>{streamMonitorText}</p>
         </div>
       </aside>
     </main>
