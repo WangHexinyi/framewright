@@ -53,7 +53,7 @@ function testAppIntegration() {
   requireText('src/App.tsx', 'applyComponentPatch');
   requireText('src/App.tsx', 'synced-local');
   requireText('src/App.tsx', 'stripRuntimeChrome');
-  requireText('src/App.tsx', 'Roll back last patch');
+  requireText('src/App.tsx', 'Undo last change');
   requireText('src/components/PreviewStage.tsx', 'data-block-id');
   requireText('src/components/PreviewStage.tsx', 'componentPath');
   requireText('src/components/PreviewStage.tsx', '.__fw_inspect_hit_layer');

@@ -68,7 +68,7 @@ const COPY = {
     autoOff: 'Auto compile off',
     exportLedger: 'Export ledger',
     clear: 'Clear',
-    rollback: 'Roll back last patch',
+    rollback: 'Undo last change',
     clearMetrics: 'Clear metrics',
     askAi: 'Ask AI to compile layout',
     model: 'Model',
@@ -119,7 +119,7 @@ const COPY = {
     autoOff: '自动编译已关',
     exportLedger: '导出记录',
     clear: '清空',
-    rollback: '回滚上个补丁',
+    rollback: '返回上一步',
     clearMetrics: '清空指标',
     askAi: '让 AI 编译布局',
     model: '模型',
@@ -170,7 +170,7 @@ const COPY = {
     autoOff: 'Compilation auto inactive',
     exportLedger: 'Exporter le journal',
     clear: 'Effacer',
-    rollback: 'Annuler le dernier patch',
+    rollback: 'Annuler le dernier changement',
     clearMetrics: 'Effacer les métriques',
     askAi: 'Demander à l’AI de compiler',
     model: 'Modèle',
@@ -365,6 +365,22 @@ function stripRuntimeChrome(html: string): string {
   return html.replace(/<div class="__fw_inspect_hit_layer"[^>]*><\/div>/g, '');
 }
 
+function summarizeVisibleModelStream(text: string, isLoading: boolean): string {
+  const received = text.length;
+  const html = extractHtmlBlock(text);
+  const status = html
+    ? `${isLoading ? 'Streaming' : 'Latest response'}: HTML detected, ${html.length.toLocaleString()} code characters, ${received.toLocaleString()} total response characters.`
+    : `${isLoading ? 'Streaming' : 'Latest response'}: waiting for fenced HTML, ${received.toLocaleString()} response characters received.`;
+  const fenceStart = text.search(/```html/i);
+  const visibleText = (fenceStart >= 0 ? text.slice(0, fenceStart) : text)
+    .replace(/<think>[\s\S]*?<\/think>/gi, '[Model reasoning stream received; hidden by the app.]\n')
+    .replace(/```[\s\S]*$/g, '')
+    .trim();
+
+  if (!visibleText) return status;
+  return `${status}\n\nModel visible stream:\n${visibleText.slice(-2200)}`;
+}
+
 function localSourceMetric(result: SourceEditResult): AiCallMetric {
   return {
     id: `metric_${Date.now().toString(36)}`,
@@ -412,6 +428,7 @@ function App() {
   const codeTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const codeAutoFollowRef = useRef(true);
   const codeAutoScrollingRef = useRef(false);
+  const suppressNextPreviewHistoryRef = useRef(false);
   const pendingStreamCodeRef = useRef('');
   const streamCodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousCodeRef = useRef(STARTER_HTML);
@@ -470,16 +487,29 @@ function App() {
     }, 0);
   }, []);
 
+  const forceCodeFollow = useCallback(() => {
+    codeAutoFollowRef.current = true;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(scrollCodeToBottom);
+    });
+  }, [scrollCodeToBottom]);
+
   useLayoutEffect(() => {
     if (!codePanelOpen) return;
+    let innerFrame = 0;
     const frame = requestAnimationFrame(() => {
+      innerFrame = requestAnimationFrame(() => {
       if (codeAutoFollowRef.current) {
         scrollCodeToBottom();
       } else {
         syncCodeScroll();
       }
+      });
     });
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      if (innerFrame) cancelAnimationFrame(innerFrame);
+    };
   }, [code, codePanelOpen, scrollCodeToBottom, syncCodeScroll]);
 
   useEffect(() => {
@@ -490,22 +520,41 @@ function App() {
 
   const streamMonitorText = useMemo(() => {
     if (!isLoading && !streamText) return t.streamEmpty;
-    const html = extractHtmlBlock(streamText);
-    const received = streamText.length;
-    if (html) {
-      return `${isLoading ? 'Streaming' : 'Latest response'}: HTML detected, ${html.length.toLocaleString()} code characters, ${received.toLocaleString()} total response characters.`;
-    }
-    return `${isLoading ? 'Streaming' : 'Latest response'}: waiting for fenced HTML, ${received.toLocaleString()} response characters received.`;
+    return summarizeVisibleModelStream(streamText, isLoading);
   }, [isLoading, streamText, t.streamEmpty]);
 
-  const handleCodeChange = useCallback((nextCode: string) => {
+  const pushUndoSnapshot = useCallback((reason: string) => {
+    setPatchVersions((prev) => {
+      if (prev[0]?.html === code) return prev;
+      return [
+        createPatchVersion(architecture, `undo_${Date.now().toString(36)}`, code, reason),
+        ...prev,
+      ].slice(0, 50);
+    });
+  }, [architecture, code]);
+
+  const setProgrammaticCode = useCallback((nextCode: string) => {
+    suppressNextPreviewHistoryRef.current = true;
+    window.setTimeout(() => {
+      suppressNextPreviewHistoryRef.current = false;
+    }, 1200);
+    setCode(nextCode);
+  }, []);
+
+  const handleCodeChange = useCallback((nextCode: string, source: 'preview' | 'source' = 'preview') => {
     const cleanedCode = stripRuntimeChrome(nextCode);
     if (cleanedCode === code) return;
+    const skipPreviewHistory = source === 'preview' && suppressNextPreviewHistoryRef.current;
+    if (skipPreviewHistory) {
+      suppressNextPreviewHistoryRef.current = false;
+    } else {
+      pushUndoSnapshot(source === 'source' ? 'source edit' : 'preview edit');
+    }
     compileVersionRef.current += 1;
     setCode(cleanedCode);
     setCompileIssues([]);
     setCompileState('dirty');
-  }, [code]);
+  }, [code, pushUndoSnapshot]);
 
   const handleOperation = useCallback((operation: GestureOperation) => {
     compileVersionRef.current += 1;
@@ -576,13 +625,13 @@ function App() {
       createPatchVersion(architecture, sourceEdit.actionId, code, `local style ${property}`),
       ...prev,
     ].slice(0, 20));
-    setCode(sourceEdit.code);
+    setProgrammaticCode(sourceEdit.code);
     setCompileIssues([...sourceEdit.issues, ...validateCompiledHtml(sourceEdit.code)]);
     setAiMetrics((prev) => [localSourceMetric(sourceEdit), ...prev].slice(0, 50));
     setOperations([]);
     setCompileState('synced-local');
     setError(null);
-  }, [architecture, code, selectedElement, t.noSelection]);
+  }, [architecture, code, selectedElement, setProgrammaticCode, t.noSelection]);
 
   async function runAi(nextMessages: Message[], streamToCode = true) {
     if (!hasApiKey) {
@@ -601,16 +650,22 @@ function App() {
 
     try {
       let streamed = '';
+      let historyCaptured = false;
       const response = await streamChatCompletion(config, nextMessages, (chunk) => {
         streamed += chunk;
         setStreamText(streamed);
         const partialHtml = extractHtmlBlock(streamed);
         if (partialHtml && streamToCode) {
+          if (!historyCaptured) {
+            pushUndoSnapshot('AI code generation');
+            historyCaptured = true;
+          }
           pendingStreamCodeRef.current = partialHtml;
           if (!streamCodeTimerRef.current) {
             streamCodeTimerRef.current = window.setTimeout(() => {
               streamCodeTimerRef.current = null;
-              setCode(pendingStreamCodeRef.current);
+              setProgrammaticCode(pendingStreamCodeRef.current);
+              forceCodeFollow();
             }, 500);
           }
         }
@@ -621,7 +676,11 @@ function App() {
         window.clearTimeout(streamCodeTimerRef.current);
         streamCodeTimerRef.current = null;
       }
-      if (html && streamToCode) setCode(html);
+      if (html && streamToCode) {
+        if (!historyCaptured) pushUndoSnapshot('AI code generation');
+        setProgrammaticCode(html);
+        forceCodeFollow();
+      }
       return response;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown API error.');
@@ -669,7 +728,7 @@ Return a complete responsive single-file HTML prototype.`,
         createPatchVersion(architecture, sourceEdit.actionId, code, 'local source AST edit'),
         ...prev,
       ].slice(0, 20));
-      setCode(sourceEdit.code);
+      setProgrammaticCode(sourceEdit.code);
       setCompileIssues([...sourceEdit.issues, ...validateCompiledHtml(sourceEdit.code)]);
       setAiMetrics((prev) => [localSourceMetric(sourceEdit), ...prev].slice(0, 50));
       setMessages((prev) => [
@@ -707,7 +766,7 @@ Return a complete responsive single-file HTML prototype.`,
       if (html) {
         const patched = applyComponentPatch(architecture.html, promptPlan.blockId, html);
         const nextCode = patched || (/<html[\s>]|<!doctype html>/i.test(html) ? html : code);
-        setCode(nextCode);
+        setProgrammaticCode(nextCode);
         setCompileIssues(validateCompiledHtml(nextCode));
         setPromptCache((prev) => [
           { key: promptPlan.cacheKey, prompt: promptPlan.prompt, response, createdAt: Date.now() },
@@ -736,7 +795,7 @@ Return a complete responsive single-file HTML prototype.`,
         createPatchVersion(architecture, sourceEdit.actionId, code, 'background local source AST edit'),
         ...prev,
       ].slice(0, 20));
-      setCode(sourceEdit.code);
+      setProgrammaticCode(sourceEdit.code);
       setCompileIssues([...sourceEdit.issues, ...validateCompiledHtml(sourceEdit.code)]);
       setAiMetrics((prev) => [localSourceMetric(sourceEdit), ...prev].slice(0, 50));
       setOperations([]);
@@ -784,7 +843,7 @@ Return a complete responsive single-file HTML prototype.`,
           createPatchVersion(architecture, promptPlan.componentId, code, 'background compile'),
           ...prev,
         ].slice(0, 20));
-        setCode(nextCode);
+        setProgrammaticCode(nextCode);
         setCompileIssues(validateCompiledHtml(nextCode));
         setPromptCache((prev) => [
           { key: promptPlan.cacheKey, prompt: promptPlan.prompt, response, createdAt: Date.now() },
@@ -810,7 +869,7 @@ Return a complete responsive single-file HTML prototype.`,
         setCompileState('queued');
       }
     }
-  }, [architecture, autoCompileEnabled, code, config, hasApiKey, messages, operations, promptCache, selectedElement]);
+  }, [architecture, autoCompileEnabled, code, config, hasApiKey, messages, operations, promptCache, selectedElement, setProgrammaticCode]);
 
   useEffect(() => {
     if (!autoCompileEnabled || operations.length === 0 || activeCompileRef.current) return;
@@ -848,11 +907,14 @@ Return a complete responsive single-file HTML prototype.`,
     const [latest, ...rest] = patchVersions;
     if (!latest) return;
     compileVersionRef.current += 1;
-    setCode(restorePatchVersion(latest));
+    setProgrammaticCode(restorePatchVersion(latest));
     setPatchVersions(rest);
     setOperations([]);
     setCompileIssues([]);
+    setSelectedElement(null);
+    setError(null);
     setCompileState('idle');
+    forceCodeFollow();
   }
 
   async function handleCopyCode() {
@@ -1227,7 +1289,7 @@ Return a complete responsive single-file HTML prototype.`,
         <PreviewStage
           code={code}
           inspectMode={inspectMode}
-          deferPreviewSync={autoCompileEnabled && !isLoading}
+          deferPreviewSync={autoCompileEnabled && operations.length > 0 && !isLoading}
           onCodeChange={handleCodeChange}
           onOperation={handleOperation}
           onSelectElement={setSelectedElement}
@@ -1301,7 +1363,7 @@ Return a complete responsive single-file HTML prototype.`,
           <textarea
             ref={codeTextareaRef}
             value={code}
-            onChange={(event) => handleCodeChange(event.target.value)}
+            onChange={(event) => handleCodeChange(event.target.value, 'source')}
             onScroll={(event) => {
               if (codeAutoScrollingRef.current) {
                 syncCodeScroll();
