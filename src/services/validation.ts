@@ -1,6 +1,6 @@
-import type { ElementRect, GestureOperation, GestureType, SelectedElement } from '../types';
+import { GESTURE_TYPES, type ElementRect, type GestureOperation, type GestureType, type SelectedElement } from '../types';
 
-const gestureTypes = new Set<GestureType>(['move', 'resize', 'editText', 'style']);
+const gestureTypes = new Set<GestureType>(GESTURE_TYPES);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;

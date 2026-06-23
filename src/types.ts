@@ -11,7 +11,9 @@ export interface ApiConfig {
   model: string;
 }
 
-export type GestureType = 'move' | 'resize' | 'editText' | 'style';
+export const GESTURE_TYPES = ['move', 'resize', 'rotate', 'editText', 'style'] as const;
+
+export type GestureType = (typeof GESTURE_TYPES)[number];
 
 export interface ElementRect {
   x: number;

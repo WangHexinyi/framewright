@@ -4,9 +4,9 @@ import type {
   SourceEditAdapter,
   SourceEditResult,
 } from './types';
-import type { GestureOperation } from '../types';
+import { GESTURE_TYPES, type GestureOperation } from '../types';
 
-const SIMPLE_GESTURES = new Set(['move', 'resize', 'rotate', 'editText', 'style']);
+const SIMPLE_GESTURES = new Set(GESTURE_TYPES);
 const SCOPED_STYLE_ID = 'fw-source-edits';
 
 function elapsed(startedAt: number): number {
@@ -165,7 +165,12 @@ function declarationsFor(operation: GestureOperation): Record<string, string> {
   }).styleChange;
   if (operationType === 'style' && styleChange) {
     const property = styleChange.property.toLowerCase();
-    declarations[property === 'background-color' ? 'background' : property] = styleChange.after;
+    const normalizedProperty = property === 'background-color' ? 'background' : property;
+    declarations[normalizedProperty] = styleChange.after;
+    if (normalizedProperty === 'border-color') {
+      declarations['border-style'] = 'solid';
+      declarations['border-width'] = '1px';
+    }
   }
   return declarations;
 }
